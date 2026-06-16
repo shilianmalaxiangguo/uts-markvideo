@@ -19,6 +19,8 @@ const requiredFiles = [
   'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoNative.kt',
   'uni_modules/uts-markvideo/utssdk/app-android/AndroidManifest.xml',
   'uni_modules/uts-markvideo/utssdk/app-ios/index.uts',
+  'uni_modules/uts-markvideo/utssdk/app-ios/Info.plist',
+  'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift',
 ];
 
 test('demo app contains the native UTS plugin MVP files', async () => {
@@ -60,4 +62,45 @@ test('Android manifest registers the native camera activity', async () => {
   );
 
   assert.match(manifest, /MarkVideoCameraActivity/);
+});
+
+test('Android camera MVP records microphone audio into the MP4', async () => {
+  const activity = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
+    'utf8',
+  );
+
+  assert.match(activity, /AudioRecord/);
+  assert.match(activity, /MIMETYPE_AUDIO_AAC/);
+  assert.match(activity, /audio\/mp4a-latm/);
+});
+
+test('iOS MVP uses AVFoundation for camera, audio, watermark, and writing', async () => {
+  const swift = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
+    'utf8',
+  );
+  const iosBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.uts'),
+    'utf8',
+  );
+
+  assert.match(swift, /AVCaptureSession/);
+  assert.match(swift, /AVCaptureAudioDataOutput/);
+  assert.match(swift, /AVAssetWriter/);
+  assert.match(swift, /watermark/);
+  assert.doesNotMatch(iosBridge, /not implemented/i);
+});
+
+test('native app declares camera and microphone privacy strings', async () => {
+  const manifest = await readFile(path.join(root, 'manifest.json'), 'utf8');
+  const iosPlist = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/Info.plist'),
+    'utf8',
+  );
+
+  assert.match(manifest, /NSCameraUsageDescription/);
+  assert.match(manifest, /NSMicrophoneUsageDescription/);
+  assert.match(iosPlist, /NSCameraUsageDescription/);
+  assert.match(iosPlist, /NSMicrophoneUsageDescription/);
 });

@@ -13,6 +13,12 @@
           "<uses-permission android:name=\"android.permission.CAMERA\"/>",
           "<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>"
         ]
+      },
+      "ios": {
+        "privacyDescription": {
+          "NSCameraUsageDescription": "用于录制带水印的视频画面",
+          "NSMicrophoneUsageDescription": "用于录制视频中的声音"
+        }
       }
     }
   }

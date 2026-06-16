@@ -3,22 +3,43 @@ import {
   CreateWatermarkSampleOptions,
   RecordWatermarkVideo,
   RecordWatermarkVideoOptions,
+  RecordWatermarkVideoSuccess,
   MarkVideoFail
 } from '../interface.uts'
 
 export const recordWatermarkVideo : RecordWatermarkVideo = function (options : RecordWatermarkVideoOptions) {
-  const err: MarkVideoFail = {
-    errCode: 2101,
-    errMsg: 'iOS camera recorder MVP is not implemented yet.'
-  }
-  options.fail?.(err)
-  options.complete?.(err)
+  const text = options.text ?? 'UTS 即拍即有水印'
+  const fps = options.fps ?? 15
+
+  MarkVideoRecorder.openCameraRecorder(
+    text,
+    fps,
+    (tempFilePath: string, actualDurationMs: number, actualWidth: number, actualHeight: number, watermarkText: string) => {
+      const res: RecordWatermarkVideoSuccess = {
+        tempFilePath: tempFilePath,
+        durationMs: actualDurationMs,
+        width: actualWidth,
+        height: actualHeight,
+        watermarkText: watermarkText
+      }
+      options.success?.(res)
+      options.complete?.(res)
+    },
+    (message: string) => {
+      const err: MarkVideoFail = {
+        errCode: 2101,
+        errMsg: message
+      }
+      options.fail?.(err)
+      options.complete?.(err)
+    }
+  )
 }
 
 export const createWatermarkSample : CreateWatermarkSample = function (options : CreateWatermarkSampleOptions) {
   const err: MarkVideoFail = {
     errCode: 2001,
-    errMsg: 'iOS MVP is not implemented yet. Android verifies the native encoder path first.'
+    errMsg: 'iOS sample generator is unavailable. Use recordWatermarkVideo for camera, audio, and watermark recording.'
   }
   options.fail?.(err)
   options.complete?.(err)

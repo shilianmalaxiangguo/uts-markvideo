@@ -15,10 +15,11 @@ contain the watermark.
 - The uni-app page receives the MP4 path and plays it for visual verification.
 - No push-stream/RTMP/WebRTC server is involved.
 
-This MVP is deliberately small: Android only, no audio track, Camera2
-`ImageReader` frames, CPU bitmap conversion, and H.264 MP4 output. It is meant
-to prove the product flow before replacing the frame path with a production
-OpenGL/CameraX pipeline.
+This MVP is deliberately small: Android uses Camera2 `ImageReader` frames plus
+`AudioRecord`, and iOS uses AVFoundation video/audio outputs plus
+`AVAssetWriter`. Both paths aim to produce a local file with a burned-in
+watermark and microphone audio. It is meant to prove the product flow before
+replacing the frame path with a production OpenGL/CameraX/Metal pipeline.
 
 ## Try it
 
@@ -30,8 +31,8 @@ OpenGL/CameraX pipeline.
 6. The app should receive a local MP4 path and display it in the page video
    player. Play the MP4 and check that the watermark is burned into the video.
 
-iOS currently returns an unsupported error. That file exists only to keep the
-UTS API shape stable for the next implementation pass.
+iOS uses the same `recordWatermarkVideo` API and opens a native AVFoundation
+recorder.
 
 ## Important paths
 
@@ -42,10 +43,13 @@ UTS API shape stable for the next implementation pass.
 - `uni_modules/uts-markvideo/utssdk/app-android/MarkVideoNative.kt` - UTS hybrid
   callback bridge and generated-frame encoder sample.
 - `uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt` -
-  native camera preview and record/stop MVP.
+  native Android camera preview, microphone capture, and record/stop MVP.
+- `uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift` - native
+  iOS AVFoundation camera, audio, watermark, and writer MVP.
 
 ## Next step for real camera
 
 For production, replace the CPU bitmap conversion in
-`MarkVideoCameraActivity.kt` with an OpenGL or CameraX effect pipeline, add AAC
-audio capture, and mux the audio track with the video track.
+`MarkVideoCameraActivity.kt` with an OpenGL or CameraX effect pipeline, replace
+the iOS CoreGraphics watermark pass with Metal/CoreImage tuning as needed, and
+add deeper device/orientation testing.
