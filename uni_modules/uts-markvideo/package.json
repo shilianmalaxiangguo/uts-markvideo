@@ -1,0 +1,35 @@
+{
+  "id": "uts-markvideo",
+  "name": "uts-markvideo",
+  "displayName": "UTS MarkVideo",
+  "version": "0.0.1",
+  "description": "Native App watermark video MVP for uni-app UTS.",
+  "keywords": [
+    "uts",
+    "video",
+    "watermark",
+    "android"
+  ],
+  "repository": "",
+  "engines": {
+    "HBuilderX": "^4.0.0"
+  },
+  "dcloudext": {
+    "category": [
+      "UTS插件"
+    ],
+    "sale": {
+      "regular": {
+        "price": "0.00"
+      }
+    },
+    "declaration": {
+      "ads": "无",
+      "data": "插件不采集任何数据",
+      "permissions": "Android MVP reserves camera and microphone permissions for the real recorder pass."
+    }
+  },
+  "uni_modules": {
+    "dependencies": []
+  }
+}

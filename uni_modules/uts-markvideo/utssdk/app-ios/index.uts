@@ -1,0 +1,14 @@
+import {
+  CreateWatermarkSample,
+  CreateWatermarkSampleOptions,
+  MarkVideoFail
+} from '../interface.uts'
+
+export const createWatermarkSample : CreateWatermarkSample = function (options : CreateWatermarkSampleOptions) {
+  const err: MarkVideoFail = {
+    errCode: 2001,
+    errMsg: 'iOS MVP is not implemented yet. Android verifies the native encoder path first.'
+  }
+  options.fail?.(err)
+  options.complete?.(err)
+}

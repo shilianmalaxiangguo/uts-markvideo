@@ -1,0 +1,41 @@
+import {
+  CreateWatermarkSample,
+  CreateWatermarkSampleOptions,
+  CreateWatermarkSampleSuccess,
+  MarkVideoFail
+} from '../interface.uts'
+import { MarkVideoNative } from 'uts.markvideo.android'
+
+export const createWatermarkSample : CreateWatermarkSample = function (options : CreateWatermarkSampleOptions) {
+  const text = options.text ?? 'UTS MarkVideo MVP'
+  const durationMs = options.durationMs ?? 3000
+  const width = options.width ?? 720
+  const height = options.height ?? 1280
+  const fps = options.fps ?? 24
+
+  MarkVideoNative.createSampleVideo(
+    text,
+    durationMs,
+    width,
+    height,
+    fps,
+    (tempFilePath: string, actualDurationMs: number, actualWidth: number, actualHeight: number) => {
+      const res: CreateWatermarkSampleSuccess = {
+        tempFilePath: tempFilePath,
+        durationMs: actualDurationMs,
+        width: actualWidth,
+        height: actualHeight
+      }
+      options.success?.(res)
+      options.complete?.(res)
+    },
+    (message: string) => {
+      const err: MarkVideoFail = {
+        errCode: 1001,
+        errMsg: message
+      }
+      options.fail?.(err)
+      options.complete?.(err)
+    }
+  )
+}

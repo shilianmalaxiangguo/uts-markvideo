@@ -1,0 +1,19 @@
+{
+  "name": "uts-markvideo",
+  "appid": "__UNI__UTSMARKVIDEO",
+  "description": "Native UTS watermark video MVP",
+  "versionName": "0.0.1",
+  "versionCode": "1",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "distribute": {
+      "android": {
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.CAMERA\"/>",
+          "<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>"
+        ]
+      }
+    }
+  }
+}
