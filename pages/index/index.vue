@@ -135,22 +135,16 @@ export default {
           imagePath: this.watermarkImagePath,
           x: 0.5,
           y: 0.78,
-          textStyle: {
-            color: '#ffffff',
-            fontSize: 30,
-            bold: true
-          },
-          imageStyle: {
-            height: 58,
-            gap: 18
-          },
-          boxStyle: {
-            width: 0.88,
-            height: 0.16,
-            backgroundColor: '#00000099',
-            borderRadius: 18,
-            padding: 28
-          }
+          textColor: '#ffffff',
+          fontSize: 30,
+          textBold: true,
+          imageHeight: 58,
+          imageGap: 18,
+          boxWidth: 0.88,
+          boxHeight: 0.16,
+          backgroundColor: '#00000099',
+          borderRadius: 18,
+          padding: 28
         },
         video: {
           fps: this.safeNumber(this.fps, 30),

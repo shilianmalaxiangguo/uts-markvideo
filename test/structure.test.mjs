@@ -165,20 +165,28 @@ test('recordWatermarkVideo supports configurable Android watermark styling', asy
   );
   const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
 
-  assert.match(interfaceText, /MarkVideoWatermarkTextStyle/);
-  assert.match(interfaceText, /MarkVideoWatermarkImageStyle/);
-  assert.match(interfaceText, /MarkVideoWatermarkBoxStyle/);
+  assert.doesNotMatch(interfaceText, /MarkVideoWatermarkTextStyle/);
+  assert.doesNotMatch(interfaceText, /MarkVideoWatermarkImageStyle/);
+  assert.doesNotMatch(interfaceText, /MarkVideoWatermarkBoxStyle/);
   assert.match(interfaceText, /x\?: number/);
-  assert.match(interfaceText, /textStyle\?: MarkVideoWatermarkTextStyle/);
-  assert.match(interfaceText, /imageStyle\?: MarkVideoWatermarkImageStyle/);
-  assert.match(interfaceText, /boxStyle\?: MarkVideoWatermarkBoxStyle/);
-  assert.match(api, /textStyle\.color/);
-  assert.match(api, /imageStyle\.width/);
-  assert.match(api, /boxStyle\.backgroundColor/);
-  assert.match(api, /compatibility aliases/);
-  assert.match(androidBridge, /options\.watermark\?\.textStyle\?\.color/);
-  assert.match(androidBridge, /options\.watermark\?\.imageStyle\?\.height/);
-  assert.match(androidBridge, /options\.watermark\?\.boxStyle\?\.backgroundColor/);
+  assert.match(interfaceText, /textColor\?: string/);
+  assert.match(interfaceText, /textBold\?: boolean/);
+  assert.match(interfaceText, /imageWidth\?: number/);
+  assert.match(interfaceText, /boxWidth\?: number/);
+  assert.doesNotMatch(interfaceText, /textStyle\?:/);
+  assert.doesNotMatch(interfaceText, /imageStyle\?:/);
+  assert.doesNotMatch(interfaceText, /boxStyle\?:/);
+  assert.match(api, /Keep these style options flat/);
+  assert.match(api, /JSONObject/);
+  assert.match(api, /textColor/);
+  assert.match(api, /imageWidth/);
+  assert.match(api, /backgroundColor/);
+  assert.match(androidBridge, /options\.watermark\?\.textColor/);
+  assert.match(androidBridge, /options\.watermark\?\.imageHeight/);
+  assert.match(androidBridge, /options\.watermark\?\.backgroundColor/);
+  assert.doesNotMatch(androidBridge, /textStyle/);
+  assert.doesNotMatch(androidBridge, /imageStyle/);
+  assert.doesNotMatch(androidBridge, /boxStyle/);
   assert.match(nativeBridge, /EXTRA_WATERMARK_TEXT_COLOR/);
   assert.match(nativeBridge, /EXTRA_WATERMARK_IMAGE_WIDTH/);
   assert.match(nativeBridge, /EXTRA_WATERMARK_BOX_BACKGROUND_COLOR/);
@@ -192,9 +200,12 @@ test('recordWatermarkVideo supports configurable Android watermark styling', asy
   assert.match(activity, /watermarkBoxBorderRadius/);
   assert.match(activity, /getScaledWatermarkImage\(defaultLogoHeight/);
   assert.match(activity, /canvas\.drawRoundRect\(bandRect, watermarkBoxBorderRadius, watermarkBoxBorderRadius, bandPaint\)/);
-  assert.match(page, /textStyle: \{/);
-  assert.match(page, /imageStyle: \{/);
-  assert.match(page, /boxStyle: \{/);
+  assert.match(page, /textColor: '#ffffff'/);
+  assert.match(page, /imageHeight: 58/);
+  assert.match(page, /boxWidth: 0\.88/);
+  assert.doesNotMatch(page, /textStyle: \{/);
+  assert.doesNotMatch(page, /imageStyle: \{/);
+  assert.doesNotMatch(page, /boxStyle: \{/);
 });
 
 test('Android recorder previews the same draggable watermark style that it records', async () => {

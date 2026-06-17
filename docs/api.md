@@ -13,23 +13,17 @@ recordWatermarkVideo({
     imagePath: '/storage/emulated/0/Pictures/logo.png',
     x: 0.5,
     y: 0.78,
-    textStyle: {
-      color: '#ffffff',
-      fontSize: 30,
-      bold: true
-    },
-    imageStyle: {
-      width: 72,
-      height: 72,
-      gap: 18
-    },
-    boxStyle: {
-      width: 0.88,
-      height: 0.16,
-      backgroundColor: '#00000099',
-      borderRadius: 18,
-      padding: 28
-    }
+    textColor: '#ffffff',
+    fontSize: 30,
+    textBold: true,
+    imageWidth: 72,
+    imageHeight: 72,
+    imageGap: 18,
+    boxWidth: 0.88,
+    boxHeight: 0.16,
+    backgroundColor: '#00000099',
+    borderRadius: 18,
+    padding: 28
   },
   video: {
     fps: 30,
@@ -85,20 +79,22 @@ When both legacy and grouped options are provided, grouped options win:
 - `x` / `y`: Initial watermark center position as ratios from `0` to `1`.
   Android users can still long-press and drag the watermark preview before
   recording; the final chosen position is burned into the MP4.
-- `textStyle.color`: CSS-style color string for watermark text. Android accepts
+- `textColor`: CSS-style color string for watermark text. Android accepts
   `#RRGGBB` and `#RRGGBBAA`.
-- `textStyle.fontSize`: Text size in output pixels.
-- `textStyle.bold`: Whether the text is drawn bold.
-- `imageStyle.width` / `imageStyle.height`: Logo size in output pixels. If only
-  one side is provided, Android preserves the source image aspect ratio.
-- `imageStyle.gap`: Horizontal gap between logo and text in output pixels.
-- `boxStyle.width` / `boxStyle.height`: Watermark box size as ratios of output
-  video width and height.
-- `boxStyle.backgroundColor`: CSS-style background color for the watermark box.
-- `boxStyle.borderRadius`: Corner radius in output pixels.
-- `boxStyle.padding`: Inner padding in output pixels.
-- `textColor`, `backgroundColor`, `fontSize`, and `padding` remain supported as
-  compatibility aliases for `textStyle` and `boxStyle`.
+- `fontSize`: Text size in output pixels.
+- `textBold`: Whether the text is drawn bold.
+- `imageWidth` / `imageHeight`: Logo size in output pixels. If only one side is
+  provided, Android preserves the source image aspect ratio.
+- `imageGap`: Horizontal gap between logo and text in output pixels.
+- `boxWidth` / `boxHeight`: Watermark box size as ratios of output video width
+  and height.
+- `backgroundColor`: CSS-style background color for the watermark box.
+- `borderRadius`: Corner radius in output pixels.
+- `padding`: Inner padding in output pixels.
+
+Keep these style options flat inside `watermark`. Some UTS Android runtimes pass
+nested objects as `JSONObject` values and cannot construct nested UTS option
+types reliably.
 
 Android camera recording implements text, image logo, mixed logo+text, box
 styling, text styling, logo sizing, and drag-adjusted position. iOS currently

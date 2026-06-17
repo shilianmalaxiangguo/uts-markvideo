@@ -12,26 +12,6 @@ export type MarkVideoFail = {
   errMsg: string
 }
 
-export type MarkVideoWatermarkTextStyle = {
-  color?: string
-  fontSize?: number
-  bold?: boolean
-}
-
-export type MarkVideoWatermarkImageStyle = {
-  width?: number
-  height?: number
-  gap?: number
-}
-
-export type MarkVideoWatermarkBoxStyle = {
-  width?: number
-  height?: number
-  backgroundColor?: string
-  borderRadius?: number
-  padding?: number
-}
-
 export type MarkVideoWatermarkOptions = {
   text?: string
   imagePath?: string
@@ -39,12 +19,16 @@ export type MarkVideoWatermarkOptions = {
   x?: number
   y?: number
   textColor?: string
-  backgroundColor?: string
   fontSize?: number
+  textBold?: boolean
+  imageWidth?: number
+  imageHeight?: number
+  imageGap?: number
+  boxWidth?: number
+  boxHeight?: number
+  backgroundColor?: string
+  borderRadius?: number
   padding?: number
-  textStyle?: MarkVideoWatermarkTextStyle
-  imageStyle?: MarkVideoWatermarkImageStyle
-  boxStyle?: MarkVideoWatermarkBoxStyle
 }
 
 export type MarkVideoVideoOptions = {
