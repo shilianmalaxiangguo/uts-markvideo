@@ -36,6 +36,9 @@ recorder.
 
 ## Important paths
 
+- `docs/api.md` - public plugin API shape, compatibility rules, and planned
+  option groups.
+- `docs/roadmap.md` - Android APK test findings and optimization roadmap.
 - `pages/index/index.vue` - demo page that configures the watermark and opens
   the recorder.
 - `uni_modules/uts-markvideo/utssdk/interface.uts` - public plugin contract.

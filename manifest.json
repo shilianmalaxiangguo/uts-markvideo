@@ -1,27 +1,31 @@
 {
-  "name": "uts-markvideo",
-  "appid": "__UNI__35B9069",
-  "description": "Native UTS watermark video MVP",
-  "versionName": "0.0.1",
-  "versionCode": "1",
-  "vueVersion": "3",
-  "transformPx": false,
-  "app-plus": {
-    "usingComponents": true,
-    "distribute": {
-      "android": {
-        "permissions": [
-          "<uses-permission android:name=\"android.permission.CAMERA\"/>",
-          "<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>"
-        ]
-      },
-      "ios": {
-        "privacyDescription": {
-          "NSCameraUsageDescription": "用于录制带水印的视频画面",
-          "NSMicrophoneUsageDescription": "用于录制视频中的声音"
+    "name" : "uts-markvideo",
+    "appid" : "__UNI__12069F3",
+    "description" : "Native UTS watermark video MVP",
+    "versionName" : "0.0.1",
+    "versionCode" : "1",
+    "vueVersion" : "3",
+    "transformPx" : false,
+    "app-plus" : {
+        "usingComponents" : true,
+        "distribute" : {
+            "android" : {
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.CAMERA\"/>",
+                    "<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>"
+                ]
+            },
+            "ios" : {
+                "privacyDescription" : {
+                    "NSCameraUsageDescription" : "用于录制带水印的视频画面",
+                    "NSMicrophoneUsageDescription" : "用于录制视频中的声音"
+                },
+                "dSYMs" : false
+            }
         },
-        "dSYMs": false
-      }
+        "modules" : {
+            "Camera" : {},
+            "VideoPlayer" : {}
+        }
     }
-  }
 }

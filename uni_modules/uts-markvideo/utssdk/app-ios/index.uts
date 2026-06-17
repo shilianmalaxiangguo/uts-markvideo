@@ -8,15 +8,32 @@ import {
 } from '../interface.uts'
 
 export const recordWatermarkVideo : RecordWatermarkVideo = function (options : RecordWatermarkVideoOptions) {
-  const text = options.text ?? 'UTS 即拍即有水印'
-  const fps = options.fps ?? 15
+  const text = options.watermark?.text ?? options.text ?? 'UTS 即拍即有水印'
+  const fps = options.video?.fps ?? options.fps ?? 15
+  const width = options.video?.width ?? 0
+  const height = options.video?.height ?? 0
+  const bitrate = options.video?.bitrate ?? 0
+  const includeAudio = options.video?.includeAudio ?? true
+  const facing = options.camera?.facing ?? 'back'
+  const maxDurationMs = options.limits?.maxDurationMs ?? 0
+  const minDurationMs = options.limits?.minDurationMs ?? 0
+  const perfLogging = options.diagnostics?.perfLogging ?? false
 
   MarkVideoRecorder.openCameraRecorder(
     text,
     fps,
+    width,
+    height,
+    bitrate,
+    includeAudio,
+    facing,
+    maxDurationMs,
+    minDurationMs,
+    perfLogging,
     (tempFilePath: string, actualDurationMs: number, actualWidth: number, actualHeight: number, watermarkText: string) => {
       const res: RecordWatermarkVideoSuccess = {
         tempFilePath: tempFilePath,
+        savedFilePath: tempFilePath,
         durationMs: actualDurationMs,
         width: actualWidth,
         height: actualHeight,
@@ -25,9 +42,9 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
       options.success?.(res)
       options.complete?.(res)
     },
-    (message: string) => {
+    (code: number, message: string) => {
       const err: MarkVideoFail = {
-        errCode: 2101,
+        errCode: code,
         errMsg: message
       }
       options.fail?.(err)
@@ -38,7 +55,7 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
 
 export const createWatermarkSample : CreateWatermarkSample = function (options : CreateWatermarkSampleOptions) {
   const err: MarkVideoFail = {
-    errCode: 2001,
+    errCode: 2100,
     errMsg: 'iOS sample generator is unavailable. Use recordWatermarkVideo for camera, audio, and watermark recording.'
   }
   options.fail?.(err)
