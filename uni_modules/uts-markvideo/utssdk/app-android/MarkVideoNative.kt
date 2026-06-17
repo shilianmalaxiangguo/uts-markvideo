@@ -21,50 +21,133 @@ object MarkVideoNative {
     private const val MIME_TYPE = "video/avc"
     private const val TIMEOUT_US = 10_000L
     internal const val EXTRA_WATERMARK_TEXT = "uts.markvideo.WATERMARK_TEXT"
+    internal const val EXTRA_WATERMARK_IMAGE_PATH = "uts.markvideo.WATERMARK_IMAGE_PATH"
+    internal const val EXTRA_WATERMARK_X = "uts.markvideo.WATERMARK_X"
+    internal const val EXTRA_WATERMARK_Y = "uts.markvideo.WATERMARK_Y"
+    internal const val EXTRA_WATERMARK_TEXT_COLOR = "uts.markvideo.WATERMARK_TEXT_COLOR"
+    internal const val EXTRA_WATERMARK_TEXT_FONT_SIZE = "uts.markvideo.WATERMARK_TEXT_FONT_SIZE"
+    internal const val EXTRA_WATERMARK_TEXT_BOLD = "uts.markvideo.WATERMARK_TEXT_BOLD"
+    internal const val EXTRA_WATERMARK_IMAGE_WIDTH = "uts.markvideo.WATERMARK_IMAGE_WIDTH"
+    internal const val EXTRA_WATERMARK_IMAGE_HEIGHT = "uts.markvideo.WATERMARK_IMAGE_HEIGHT"
+    internal const val EXTRA_WATERMARK_IMAGE_GAP = "uts.markvideo.WATERMARK_IMAGE_GAP"
+    internal const val EXTRA_WATERMARK_BOX_WIDTH = "uts.markvideo.WATERMARK_BOX_WIDTH"
+    internal const val EXTRA_WATERMARK_BOX_HEIGHT = "uts.markvideo.WATERMARK_BOX_HEIGHT"
+    internal const val EXTRA_WATERMARK_BOX_BACKGROUND_COLOR = "uts.markvideo.WATERMARK_BOX_BACKGROUND_COLOR"
+    internal const val EXTRA_WATERMARK_BOX_BORDER_RADIUS = "uts.markvideo.WATERMARK_BOX_BORDER_RADIUS"
+    internal const val EXTRA_WATERMARK_BOX_PADDING = "uts.markvideo.WATERMARK_BOX_PADDING"
     internal const val EXTRA_FPS = "uts.markvideo.FPS"
+    internal const val EXTRA_BITRATE = "uts.markvideo.BITRATE"
+    internal const val EXTRA_INCLUDE_AUDIO = "uts.markvideo.INCLUDE_AUDIO"
+    internal const val EXTRA_CAMERA_FACING = "uts.markvideo.CAMERA_FACING"
+    internal const val EXTRA_MAX_DURATION_MS = "uts.markvideo.MAX_DURATION_MS"
+    internal const val EXTRA_MIN_DURATION_MS = "uts.markvideo.MIN_DURATION_MS"
+    internal const val EXTRA_PERF_LOGGING = "uts.markvideo.PERF_LOGGING"
 
-    private var pendingRecordSuccess: ((String, Long, Int, Int, String) -> Unit)? = null
-    private var pendingRecordFail: ((String) -> Unit)? = null
+    private var pendingRecordSuccess: ((String, String, Long, Int, Int, String, Int, Int, Int, Int, Int) -> Unit)? = null
+    private var pendingRecordFail: ((Int, String) -> Unit)? = null
 
     @JvmStatic
     fun openCameraRecorder(
         text: String,
+        imagePath: String,
+        watermarkX: Number,
+        watermarkY: Number,
+        textColor: String,
+        textFontSize: Number,
+        textBold: Boolean,
+        imageWidth: Number,
+        imageHeight: Number,
+        imageGap: Number,
+        boxWidth: Number,
+        boxHeight: Number,
+        boxBackgroundColor: String,
+        boxBorderRadius: Number,
+        boxPadding: Number,
         fps: Number,
-        onSuccess: (String, Long, Int, Int, String) -> Unit,
-        onFail: (String) -> Unit
+        bitrate: Number,
+        includeAudio: Boolean,
+        facing: String,
+        maxDurationMs: Number,
+        minDurationMs: Number,
+        perfLogging: Boolean,
+        onSuccess: (String, String, Long, Int, Int, String, Int, Int, Int, Int, Int) -> Unit,
+        onFail: (Int, String) -> Unit
     ) {
         val activity = UTSAndroid.getUniActivity()
         if (activity == null) {
-            onFail("No active uni-app activity.")
+            onFail(ERR_ENVIRONMENT, "No active uni-app activity.")
             return
         }
 
         pendingRecordSuccess = onSuccess
         pendingRecordFail = onFail
 
-        val intent = Intent(activity, MarkVideoCameraActivity::class.java).apply {
-            putExtra(EXTRA_WATERMARK_TEXT, text.ifBlank { "UTS 即拍即有水印" })
-            putExtra(EXTRA_FPS, fps.toInt().coerceIn(8, 24))
+        try {
+            val intent = Intent(activity, MarkVideoCameraActivity::class.java).apply {
+                putExtra(EXTRA_WATERMARK_TEXT, text.ifBlank { "UTS 即拍即有水印" })
+                putExtra(EXTRA_WATERMARK_IMAGE_PATH, imagePath)
+                putExtra(EXTRA_WATERMARK_X, watermarkX.toFloat().coerceIn(0f, 1f))
+                putExtra(EXTRA_WATERMARK_Y, watermarkY.toFloat().coerceIn(0f, 1f))
+                putExtra(EXTRA_WATERMARK_TEXT_COLOR, textColor)
+                putExtra(EXTRA_WATERMARK_TEXT_FONT_SIZE, textFontSize.toFloat().coerceIn(0f, 512f))
+                putExtra(EXTRA_WATERMARK_TEXT_BOLD, textBold)
+                putExtra(EXTRA_WATERMARK_IMAGE_WIDTH, imageWidth.toFloat().coerceIn(0f, 2048f))
+                putExtra(EXTRA_WATERMARK_IMAGE_HEIGHT, imageHeight.toFloat().coerceIn(0f, 2048f))
+                putExtra(EXTRA_WATERMARK_IMAGE_GAP, imageGap.toFloat().coerceIn(0f, 512f))
+                putExtra(EXTRA_WATERMARK_BOX_WIDTH, boxWidth.toFloat().coerceIn(0f, 1f))
+                putExtra(EXTRA_WATERMARK_BOX_HEIGHT, boxHeight.toFloat().coerceIn(0f, 1f))
+                putExtra(EXTRA_WATERMARK_BOX_BACKGROUND_COLOR, boxBackgroundColor)
+                putExtra(EXTRA_WATERMARK_BOX_BORDER_RADIUS, boxBorderRadius.toFloat().coerceIn(0f, 512f))
+                putExtra(EXTRA_WATERMARK_BOX_PADDING, boxPadding.toFloat().coerceIn(0f, 512f))
+                putExtra(EXTRA_FPS, fps.toInt().coerceIn(8, 60))
+                putExtra(EXTRA_BITRATE, bitrate.toInt().coerceIn(0, 20_000_000))
+                putExtra(EXTRA_INCLUDE_AUDIO, includeAudio)
+                putExtra(EXTRA_CAMERA_FACING, if (facing == "front") "front" else "back")
+                putExtra(EXTRA_MAX_DURATION_MS, maxDurationMs.toLong().coerceIn(0L, 3_600_000L))
+                putExtra(EXTRA_MIN_DURATION_MS, minDurationMs.toLong().coerceIn(0L, 60_000L))
+                putExtra(EXTRA_PERF_LOGGING, perfLogging)
+            }
+            activity.startActivity(intent)
+        } catch (throwable: Throwable) {
+            clearCameraCallbacks()
+            onFail(ERR_ENVIRONMENT, throwable.message ?: "Open native recorder activity failed.")
         }
-        activity.startActivity(intent)
     }
 
     internal fun completeCameraRecorder(
         path: String,
+        savedPath: String,
         durationMs: Long,
         width: Int,
         height: Int,
-        watermarkText: String
+        watermarkText: String,
+        framesReceived: Int,
+        framesDroppedBusy: Int,
+        framesDroppedFps: Int,
+        framesProcessed: Int,
+        framesEncoded: Int
     ) {
         val callback = pendingRecordSuccess
         clearCameraCallbacks()
-        callback?.invoke(path, durationMs, width, height, watermarkText)
+        callback?.invoke(
+            path,
+            savedPath,
+            durationMs,
+            width,
+            height,
+            watermarkText,
+            framesReceived,
+            framesDroppedBusy,
+            framesDroppedFps,
+            framesProcessed,
+            framesEncoded
+        )
     }
 
-    internal fun failCameraRecorder(message: String) {
+    internal fun failCameraRecorder(code: Int, message: String) {
         val callback = pendingRecordFail
         clearCameraCallbacks()
-        callback?.invoke(message)
+        callback?.invoke(code, message)
     }
 
     private fun clearCameraCallbacks() {
@@ -119,6 +202,16 @@ object MarkVideoNative {
     private fun even(value: Int): Int {
         return if (value % 2 == 0) value else value - 1
     }
+
+    internal const val ERR_ENVIRONMENT = 1000
+    internal const val ERR_PERMISSION_DENIED = 1001
+    internal const val ERR_CANCELLED = 1002
+    internal const val ERR_CAMERA_UNAVAILABLE = 1003
+    internal const val ERR_RECORDER_START_FAILED = 1004
+    internal const val ERR_RECORDER_STOP_FAILED = 1005
+    internal const val ERR_NO_FRAMES = 1006
+    internal const val ERR_RECORDING_TOO_SHORT = 1007
+    internal const val ERR_ENCODER_UNAVAILABLE = 1008
 
     private class WatermarkMp4Encoder(
         private val output: File,

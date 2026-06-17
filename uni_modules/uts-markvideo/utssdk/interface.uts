@@ -5,20 +5,94 @@ export type CreateWatermarkSampleSuccess = {
   height: number
 }
 
+export type MarkVideoErrorCode = number
+
 export type MarkVideoFail = {
-  errCode: number
+  errCode: MarkVideoErrorCode
   errMsg: string
+}
+
+export type MarkVideoWatermarkTextStyle = {
+  color?: string
+  fontSize?: number
+  bold?: boolean
+}
+
+export type MarkVideoWatermarkImageStyle = {
+  width?: number
+  height?: number
+  gap?: number
+}
+
+export type MarkVideoWatermarkBoxStyle = {
+  width?: number
+  height?: number
+  backgroundColor?: string
+  borderRadius?: number
+  padding?: number
+}
+
+export type MarkVideoWatermarkOptions = {
+  text?: string
+  imagePath?: string
+  position?: string
+  x?: number
+  y?: number
+  textColor?: string
+  backgroundColor?: string
+  fontSize?: number
+  padding?: number
+  textStyle?: MarkVideoWatermarkTextStyle
+  imageStyle?: MarkVideoWatermarkImageStyle
+  boxStyle?: MarkVideoWatermarkBoxStyle
+}
+
+export type MarkVideoVideoOptions = {
+  width?: number
+  height?: number
+  fps?: number
+  bitrate?: number
+  includeAudio?: boolean
+}
+
+export type MarkVideoCameraOptions = {
+  facing?: string
+  previewFit?: string
+}
+
+export type MarkVideoRecordLimits = {
+  maxDurationMs?: number
+  minDurationMs?: number
+}
+
+export type MarkVideoDiagnosticsOptions = {
+  perfLogging?: boolean
+}
+
+export type MarkVideoFrameStats = {
+  received: number
+  droppedBusy: number
+  droppedFps: number
+  processed: number
+  encoded: number
 }
 
 export type RecordWatermarkVideoSuccess = {
   tempFilePath: string
+  savedFilePath?: string
   durationMs: number
   width: number
   height: number
   watermarkText: string
+  stats?: MarkVideoFrameStats
 }
 
 export type RecordWatermarkVideoOptions = {
+  watermark?: MarkVideoWatermarkOptions
+  video?: MarkVideoVideoOptions
+  camera?: MarkVideoCameraOptions
+  limits?: MarkVideoRecordLimits
+  diagnostics?: MarkVideoDiagnosticsOptions
   text?: string
   fps?: number
   success?: (res: RecordWatermarkVideoSuccess) => void
@@ -31,6 +105,8 @@ export type RecordWatermarkVideo = (
 ) => void
 
 export type CreateWatermarkSampleOptions = {
+  watermark?: MarkVideoWatermarkOptions
+  video?: MarkVideoVideoOptions
   text?: string
   durationMs?: number
   width?: number

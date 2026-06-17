@@ -10,26 +10,86 @@ import {
 import { MarkVideoNative } from 'uts.markvideo.android'
 
 export const recordWatermarkVideo : RecordWatermarkVideo = function (options : RecordWatermarkVideoOptions) {
-  const text = options.text ?? 'UTS 即拍即有水印'
-  const fps = options.fps ?? 15
+  const text = options.watermark?.text ?? options.text ?? 'UTS 即拍即有水印'
+  const imagePath = options.watermark?.imagePath ?? ''
+  const watermarkX = options.watermark?.x ?? 0.5
+  const watermarkY = options.watermark?.y ?? 0.78
+  const textColor = options.watermark?.textStyle?.color ?? options.watermark?.textColor ?? '#ffffff'
+  const textFontSize = options.watermark?.textStyle?.fontSize ?? options.watermark?.fontSize ?? 0
+  const textBold = options.watermark?.textStyle?.bold ?? true
+  const imageWidth = options.watermark?.imageStyle?.width ?? 0
+  const imageHeight = options.watermark?.imageStyle?.height ?? 0
+  const imageGap = options.watermark?.imageStyle?.gap ?? 0
+  const boxWidth = options.watermark?.boxStyle?.width ?? 0
+  const boxHeight = options.watermark?.boxStyle?.height ?? 0
+  const boxBackgroundColor = options.watermark?.boxStyle?.backgroundColor ?? options.watermark?.backgroundColor ?? '#00000099'
+  const boxBorderRadius = options.watermark?.boxStyle?.borderRadius ?? 18
+  const boxPadding = options.watermark?.boxStyle?.padding ?? options.watermark?.padding ?? 0
+  const fps = options.video?.fps ?? options.fps ?? 30
+  const bitrate = options.video?.bitrate ?? 0
+  const includeAudio = options.video?.includeAudio ?? true
+  const facing = options.camera?.facing ?? 'back'
+  const maxDurationMs = options.limits?.maxDurationMs ?? 0
+  const minDurationMs = options.limits?.minDurationMs ?? 0
+  const perfLogging = options.diagnostics?.perfLogging ?? false
 
   MarkVideoNative.openCameraRecorder(
     text,
+    imagePath,
+    watermarkX,
+    watermarkY,
+    textColor,
+    textFontSize,
+    textBold,
+    imageWidth,
+    imageHeight,
+    imageGap,
+    boxWidth,
+    boxHeight,
+    boxBackgroundColor,
+    boxBorderRadius,
+    boxPadding,
     fps,
-    (tempFilePath: string, actualDurationMs: number, actualWidth: number, actualHeight: number, watermarkText: string) => {
+    bitrate,
+    includeAudio,
+    facing,
+    maxDurationMs,
+    minDurationMs,
+    perfLogging,
+    (
+      tempFilePath: string,
+      savedFilePath: string,
+      actualDurationMs: number,
+      actualWidth: number,
+      actualHeight: number,
+      watermarkText: string,
+      framesReceived: number,
+      framesDroppedBusy: number,
+      framesDroppedFps: number,
+      framesProcessed: number,
+      framesEncoded: number
+    ) => {
       const res: RecordWatermarkVideoSuccess = {
         tempFilePath: tempFilePath,
+        savedFilePath: savedFilePath,
         durationMs: actualDurationMs,
         width: actualWidth,
         height: actualHeight,
-        watermarkText: watermarkText
+        watermarkText: watermarkText,
+        stats: {
+          received: framesReceived,
+          droppedBusy: framesDroppedBusy,
+          droppedFps: framesDroppedFps,
+          processed: framesProcessed,
+          encoded: framesEncoded
+        }
       }
       options.success?.(res)
       options.complete?.(res)
     },
-    (message: string) => {
+    (code: number, message: string) => {
       const err: MarkVideoFail = {
-        errCode: 1101,
+        errCode: code,
         errMsg: message
       }
       options.fail?.(err)
@@ -39,11 +99,11 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
 }
 
 export const createWatermarkSample : CreateWatermarkSample = function (options : CreateWatermarkSampleOptions) {
-  const text = options.text ?? 'UTS MarkVideo MVP'
+  const text = options.watermark?.text ?? options.text ?? 'UTS MarkVideo MVP'
   const durationMs = options.durationMs ?? 3000
-  const width = options.width ?? 720
-  const height = options.height ?? 1280
-  const fps = options.fps ?? 24
+  const width = options.video?.width ?? options.width ?? 720
+  const height = options.video?.height ?? options.height ?? 1280
+  const fps = options.video?.fps ?? options.fps ?? 24
 
   MarkVideoNative.createSampleVideo(
     text,
@@ -63,7 +123,7 @@ export const createWatermarkSample : CreateWatermarkSample = function (options :
     },
     (message: string) => {
       const err: MarkVideoFail = {
-        errCode: 1001,
+        errCode: 1100,
         errMsg: message
       }
       options.fail?.(err)
