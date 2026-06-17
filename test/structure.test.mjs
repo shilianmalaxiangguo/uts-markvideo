@@ -122,6 +122,14 @@ test('native app declares camera and microphone privacy strings', async () => {
   assert.match(iosPlist, /NSMicrophoneUsageDescription/);
 });
 
+test('Vue 3 app entry is declared in manifest', async () => {
+  const main = await readFile(path.join(root, 'main.js'), 'utf8');
+  const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
+
+  assert.match(main, /createSSRApp/);
+  assert.equal(manifest.vueVersion, '3');
+});
+
 test('GitHub Actions workflow can request Android or iOS cloud packages', async () => {
   const workflow = await readFile(
     path.join(root, '.github/workflows/cloud-package.yml'),
