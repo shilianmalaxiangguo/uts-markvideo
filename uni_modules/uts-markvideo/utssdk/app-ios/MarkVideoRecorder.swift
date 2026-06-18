@@ -147,6 +147,11 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     private let ciContext = CIContext()
 
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var recordingIndicatorRow = UIStackView()
+    private var recordingDotView = UIView()
+    private var recordingTimeLabel = UILabel()
+    private var recordingTimer: Timer?
+    private var recordingStartDate: Date?
     private var statusLabel = UILabel()
     private var startButton = UIButton(type: .system)
     private var stopButton = UIButton(type: .system)
@@ -252,6 +257,26 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         controlPanel.layoutMargins = UIEdgeInsets(top: 12, left: 18, bottom: 18, right: 18)
         controlPanel.translatesAutoresizingMaskIntoConstraints = false
 
+        recordingIndicatorRow.axis = .horizontal
+        recordingIndicatorRow.alignment = .center
+        recordingIndicatorRow.spacing = 8
+        recordingIndicatorRow.isHidden = true
+        recordingIndicatorRow.translatesAutoresizingMaskIntoConstraints = false
+
+        recordingDotView.backgroundColor = .systemRed
+        recordingDotView.layer.cornerRadius = 5
+        recordingDotView.translatesAutoresizingMaskIntoConstraints = false
+        recordingDotView.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        recordingDotView.heightAnchor.constraint(equalToConstant: 10).isActive = true
+
+        recordingTimeLabel.text = Self.formatRecordingTime(elapsed: 0)
+        recordingTimeLabel.textColor = UIColor(white: 0.96, alpha: 1)
+        recordingTimeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        recordingTimeLabel.textAlignment = .left
+
+        recordingIndicatorRow.addArrangedSubview(recordingDotView)
+        recordingIndicatorRow.addArrangedSubview(recordingTimeLabel)
+
         statusLabel.text = "Camera preview"
         statusLabel.textColor = UIColor(white: 0.92, alpha: 1)
         statusLabel.font = .systemFont(ofSize: 13)
@@ -280,6 +305,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         buttonRow.spacing = 12
         buttonRow.distribution = .fillEqually
 
+        controlPanel.addArrangedSubview(recordingIndicatorRow)
         controlPanel.addArrangedSubview(statusLabel)
         controlPanel.addArrangedSubview(buttonRow)
 
@@ -295,6 +321,48 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             controlPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             controlPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+    }
+
+    private func startRecordingIndicator() {
+        recordingStartDate = Date()
+        recordingTimeLabel.text = Self.formatRecordingTime(elapsed: 0)
+        recordingIndicatorRow.isHidden = false
+        recordingDotView.layer.removeAllAnimations()
+        recordingDotView.alpha = 1
+        recordingTimer?.invalidate()
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self, let startDate = self.recordingStartDate else { return }
+            let elapsed = Int(Date().timeIntervalSince(startDate))
+            self.recordingTimeLabel.text = Self.formatRecordingTime(elapsed: elapsed)
+        }
+        if let timer = recordingTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        UIView.animate(
+            withDuration: 0.8,
+            delay: 0,
+            options: [.autoreverse, .repeat, .allowUserInteraction],
+            animations: {
+                self.recordingDotView.alpha = 0.25
+            }
+        )
+    }
+
+    private func stopRecordingIndicator() {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        recordingStartDate = nil
+        recordingDotView.layer.removeAllAnimations()
+        recordingDotView.alpha = 1
+        recordingIndicatorRow.isHidden = true
+        recordingTimeLabel.text = Self.formatRecordingTime(elapsed: 0)
+    }
+
+    private static func formatRecordingTime(elapsed: Int) -> String {
+        let safeElapsed = max(0, elapsed)
+        let minutes = safeElapsed / 60
+        let seconds = safeElapsed % 60
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 
     private func configureSession() {
@@ -389,6 +457,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
                 self.lastEncodedFrameTime = nil
                 self.videoFrameCount = 0
                 DispatchQueue.main.async {
+                    self.startRecordingIndicator()
                     self.startButton.isEnabled = false
                     self.stopButton.isEnabled = true
                     self.photoButton.isEnabled = false
@@ -482,6 +551,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         stopButton.isEnabled = false
         photoButton.isEnabled = false
         doneButton.isEnabled = false
+        stopRecordingIndicator()
         NSObject.cancelPreviousPerformRequests(
             withTarget: self,
             selector: #selector(MarkVideoRecorderViewController.stopRecording),
@@ -516,6 +586,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         } else {
             durationMs = 0
         }
+        stopRecordingIndicator()
         resetWriter()
         DispatchQueue.main.async {
             self.completed = true
@@ -572,6 +643,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             if self.completed {
                 return
             }
+            self.stopRecordingIndicator()
             self.completed = true
             MarkVideoRecorder.fail(message)
             self.dismiss(animated: true)
@@ -849,6 +921,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        stopRecordingIndicator()
         NSObject.cancelPreviousPerformRequests(
             withTarget: self,
             selector: #selector(MarkVideoRecorderViewController.stopRecording),

@@ -365,6 +365,22 @@ test('iOS recorder can optionally capture watermarked photos', async () => {
   assert.match(page, /Saved photos/);
 });
 
+test('iOS recorder shows a blinking red recording indicator and elapsed timer', async () => {
+  const swift = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
+    'utf8',
+  );
+
+  assert.match(swift, /private var recordingDotView = UIView\(\)/);
+  assert.match(swift, /private var recordingTimeLabel = UILabel\(\)/);
+  assert.match(swift, /private var recordingTimer: Timer\?/);
+  assert.match(swift, /private func startRecordingIndicator\(\)/);
+  assert.match(swift, /private func stopRecordingIndicator\(\)/);
+  assert.match(swift, /Timer\.scheduledTimer\(withTimeInterval: 1\.0, repeats: true/);
+  assert.match(swift, /recordingTimeLabel\.text = Self\.formatRecordingTime\(elapsed: 0\)/);
+  assert.match(swift, /UIView\.animate\(\s*withDuration: 0\.8,[\s\S]*recordingDotView\.alpha = 0\.25/);
+});
+
 test('Vue 3 app entry is declared in manifest', async () => {
   const main = await readFile(path.join(root, 'main.js'), 'utf8');
   const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
