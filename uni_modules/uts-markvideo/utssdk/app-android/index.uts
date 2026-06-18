@@ -29,6 +29,7 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
   const bitrate = options.video?.bitrate ?? 0
   const includeAudio = options.video?.includeAudio ?? true
   const facing = options.camera?.facing ?? 'back'
+  const enablePhoto = options.camera?.enablePhoto ?? false
   const maxDurationMs = options.limits?.maxDurationMs ?? 0
   const minDurationMs = options.limits?.minDurationMs ?? 0
   const perfLogging = options.diagnostics?.perfLogging ?? false
@@ -53,6 +54,7 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
     bitrate,
     includeAudio,
     facing,
+    enablePhoto,
     maxDurationMs,
     minDurationMs,
     perfLogging,
@@ -63,6 +65,8 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
       actualWidth: number,
       actualHeight: number,
       watermarkText: string,
+      photoTempFilePathsText: string,
+      photoSavedFilePathsText: string,
       framesReceived: number,
       framesDroppedBusy: number,
       framesDroppedFps: number,
@@ -72,6 +76,8 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
       const res: RecordWatermarkVideoSuccess = {
         tempFilePath: tempFilePath,
         savedFilePath: savedFilePath,
+        photoTempFilePaths: decodePathList(photoTempFilePathsText),
+        photoSavedFilePaths: decodePathList(photoSavedFilePathsText),
         durationMs: actualDurationMs,
         width: actualWidth,
         height: actualHeight,
@@ -96,6 +102,13 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
       options.complete?.(err)
     }
   )
+}
+
+function decodePathList(text: string): string[] {
+  if (text.length == 0) {
+    return []
+  }
+  return text.split('\n').filter((path: string) => path.length > 0)
 }
 
 export const createWatermarkSample : CreateWatermarkSample = function (options : CreateWatermarkSampleOptions) {

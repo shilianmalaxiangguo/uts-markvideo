@@ -46,6 +46,10 @@
           <checkbox :checked="perfLogging" @click="perfLogging = !perfLogging" />
           <text class="checkText">Perf logs</text>
         </label>
+        <label class="checkRow">
+          <checkbox :checked="enablePhoto" @click="enablePhoto = !enablePhoto" />
+          <text class="checkText">Photo</text>
+        </label>
       </view>
 
       <view class="toggles">
@@ -94,6 +98,17 @@
       <text class="pathLabel">Temp file</text>
       <text class="path">{{ tempFilePath }}</text>
     </view>
+
+    <view v-if="photoSavedFilePaths.length > 0" class="pathBox">
+      <text class="pathLabel">Saved photos</text>
+      <text
+        v-for="path in photoSavedFilePaths"
+        :key="path"
+        class="path"
+      >
+        {{ path }}
+      </text>
+    </view>
   </view>
 </template>
 
@@ -107,6 +122,7 @@ export default {
       videoPath: '',
       savedFilePath: '',
       tempFilePath: '',
+      photoSavedFilePaths: [],
       watermarkText: 'UTS 即拍即有水印',
       watermarkImagePath: '',
       fps: 30,
@@ -116,6 +132,7 @@ export default {
       maxDurationMs: 0,
       minDurationMs: 0,
       perfLogging: false,
+      enablePhoto: false,
       status: 'Ready'
     }
   },
@@ -127,54 +144,57 @@ export default {
       this.videoPath = ''
       this.savedFilePath = ''
       this.tempFilePath = ''
+      this.photoSavedFilePaths = []
       this.status = 'Open native camera, then start and stop recording.'
 
-      recordWatermarkVideo({
-        watermark: {
-          text: this.watermarkText,
-          imagePath: this.watermarkImagePath,
-          x: 0.5,
-          y: 0.78,
-          textColor: '#ffffff',
-          fontSize: 30,
-          textBold: true,
-          imageHeight: 58,
-          imageGap: 18,
-          boxWidth: 0.88,
-          boxHeight: 0.16,
-          backgroundColor: '#00000099',
-          borderRadius: 18,
-          padding: 28
-        },
-        video: {
-          fps: this.safeNumber(this.fps, 30),
-          bitrate: this.safeNumber(this.bitrate, 0),
-          includeAudio: this.includeAudio
-        },
-        camera: {
-          facing: this.facing
-        },
-        limits: {
-          maxDurationMs: this.safeNumber(this.maxDurationMs, 0),
-          minDurationMs: this.safeNumber(this.minDurationMs, 0)
-        },
-        diagnostics: {
-          perfLogging: this.perfLogging
-        },
-        success: (res) => {
-          this.videoPath = res.savedFilePath || res.tempFilePath
-          this.savedFilePath = res.savedFilePath || ''
-          this.tempFilePath = res.tempFilePath
-          const statsText = this.formatStats(res.stats, res.durationMs)
-          this.status = `Saved ${res.width}x${res.height}, ${res.durationMs}ms to gallery. ${statsText}`
-        },
-        fail: (err) => {
-          this.status = `${this.errorLabel(err.errCode)} (${err.errCode}): ${err.errMsg}`
-        },
-        complete: () => {
-          this.busy = false
-        }
-      })
+      try {
+        recordWatermarkVideo({
+          watermark: {
+            text: this.watermarkText,
+            imagePath: this.watermarkImagePath,
+            x: 0.5,
+            y: 0.78,
+            textColor: '#ffffff',
+            fontSize: 30,
+            textBold: true,
+            imageHeight: 58,
+            imageGap: 18,
+            boxWidth: 0.88,
+            boxHeight: 0.16,
+            backgroundColor: '#00000099',
+            borderRadius: 18,
+            padding: 28
+          },
+          video: {
+            fps: this.safeNumber(this.fps, 30),
+            bitrate: this.safeNumber(this.bitrate, 0),
+            includeAudio: this.includeAudio
+          },
+          camera: {
+            facing: this.facing,
+            enablePhoto: this.enablePhoto
+          },
+          limits: {
+            maxDurationMs: this.safeNumber(this.maxDurationMs, 0),
+            minDurationMs: this.safeNumber(this.minDurationMs, 0)
+          },
+          diagnostics: {
+            perfLogging: this.perfLogging
+          },
+          success: (res) => {
+            this.handleRecordSuccess(res || {})
+          },
+          fail: (err) => {
+            this.handleRecordFail(err || {})
+          },
+          complete: () => {
+            this.busy = false
+          }
+        })
+      } catch (error) {
+        this.busy = false
+        this.status = this.errorMessage(error, 'Open recorder failed.')
+      }
     },
     chooseWatermarkImage() {
       uni.chooseImage({
@@ -182,7 +202,8 @@ export default {
         sizeType: ['compressed', 'original'],
         sourceType: ['album'],
         success: (res) => {
-          this.watermarkImagePath = res.tempFilePaths[0] || ''
+          const paths = this.normalizeStringArray(res.tempFilePaths)
+          this.watermarkImagePath = paths[0] || ''
         },
         fail: (err) => {
           this.status = err.errMsg || 'Choose logo failed.'
@@ -192,6 +213,58 @@ export default {
     clearWatermarkImage() {
       this.watermarkImagePath = ''
     },
+    handleRecordSuccess(res) {
+      const savedPath = this.safeString(res.savedFilePath)
+      const tempPath = this.safeString(res.tempFilePath)
+      this.videoPath = savedPath || tempPath
+      this.savedFilePath = savedPath
+      this.tempFilePath = tempPath
+      this.photoSavedFilePaths = this.normalizeStringArray(res.photoSavedFilePaths)
+      const photoCount = this.photoSavedFilePaths.length
+      const statsText = this.formatStats(res.stats, res.durationMs)
+      const photoText = photoCount > 0 ? ` Photos ${photoCount}.` : ''
+
+      if (this.videoPath) {
+        this.status = `Saved ${this.safeNumber(res.width, 0)}x${this.safeNumber(res.height, 0)}, ${this.safeNumber(res.durationMs, 0)}ms to gallery.${photoText} ${statsText}`
+      } else {
+        this.status = `Saved photos ${photoCount}.`
+      }
+    },
+    handleRecordFail(err) {
+      const code = this.safeNumber(err.errCode, 1000)
+      this.status = `${this.errorLabel(code)} (${code}): ${this.safeString(err.errMsg) || 'Unknown recorder error.'}`
+    },
+    normalizeStringArray(value) {
+      if (Array.isArray(value)) {
+        return value.map((item) => this.safeString(item)).filter((item) => item.length > 0)
+      }
+      if (typeof value === 'string') {
+        return value.split('\n').map((item) => item.trim()).filter((item) => item.length > 0)
+      }
+      if (value && typeof value.length === 'number') {
+        const result = []
+        for (let index = 0; index < value.length; index += 1) {
+          const item = this.safeString(value[index])
+          if (item.length > 0) {
+            result.push(item)
+          }
+        }
+        return result
+      }
+      return []
+    },
+    safeString(value) {
+      if (value === null || value === undefined) {
+        return ''
+      }
+      return `${value}`
+    },
+    errorMessage(error, fallback) {
+      if (error && error.message) {
+        return error.message
+      }
+      return fallback
+    },
     safeNumber(value, fallback) {
       const number = Number(value)
       return Number.isFinite(number) ? number : fallback
@@ -199,6 +272,9 @@ export default {
     formatStats(stats, durationMs) {
       if (!stats) {
         return 'Play it to verify the burned-in watermark.'
+      }
+      if (!stats.encoded) {
+        return 'No video frames encoded.'
       }
       const seconds = Math.max(0.001, this.safeNumber(durationMs, 0) / 1000)
       const actualFps = Math.round((stats.encoded / seconds) * 10) / 10
@@ -215,6 +291,7 @@ export default {
         1006: 'No frames recorded',
         1007: 'Recording too short',
         1008: 'Encoder unavailable',
+        1009: 'Photo capture failed',
         1100: 'Sample generation failed',
         2100: 'iOS sample unavailable'
       }

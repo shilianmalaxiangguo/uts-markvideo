@@ -39,12 +39,13 @@ object MarkVideoNative {
     internal const val EXTRA_BITRATE = "uts.markvideo.BITRATE"
     internal const val EXTRA_INCLUDE_AUDIO = "uts.markvideo.INCLUDE_AUDIO"
     internal const val EXTRA_CAMERA_FACING = "uts.markvideo.CAMERA_FACING"
+    internal const val EXTRA_ENABLE_PHOTO = "uts.markvideo.ENABLE_PHOTO"
     internal const val EXTRA_MAX_DURATION_MS = "uts.markvideo.MAX_DURATION_MS"
     internal const val EXTRA_MIN_DURATION_MS = "uts.markvideo.MIN_DURATION_MS"
     internal const val EXTRA_PERF_LOGGING = "uts.markvideo.PERF_LOGGING"
 
-    private var pendingRecordSuccess: ((String, String, Long, Int, Int, String, Int, Int, Int, Int, Int) -> Unit)? = null
-    private var pendingRecordFail: ((Int, String) -> Unit)? = null
+    private var pendingRecordSuccess: ((String, String, Number, Number, Number, String, String, String, Number, Number, Number, Number, Number) -> Unit)? = null
+    private var pendingRecordFail: ((Number, String) -> Unit)? = null
 
     @JvmStatic
     fun openCameraRecorder(
@@ -67,11 +68,12 @@ object MarkVideoNative {
         bitrate: Number,
         includeAudio: Boolean,
         facing: String,
+        enablePhoto: Boolean,
         maxDurationMs: Number,
         minDurationMs: Number,
         perfLogging: Boolean,
-        onSuccess: (String, String, Long, Int, Int, String, Int, Int, Int, Int, Int) -> Unit,
-        onFail: (Int, String) -> Unit
+        onSuccess: (String, String, Number, Number, Number, String, String, String, Number, Number, Number, Number, Number) -> Unit,
+        onFail: (Number, String) -> Unit
     ) {
         val activity = UTSAndroid.getUniActivity()
         if (activity == null) {
@@ -103,6 +105,7 @@ object MarkVideoNative {
                 putExtra(EXTRA_BITRATE, bitrate.toInt().coerceIn(0, 20_000_000))
                 putExtra(EXTRA_INCLUDE_AUDIO, includeAudio)
                 putExtra(EXTRA_CAMERA_FACING, if (facing == "front") "front" else "back")
+                putExtra(EXTRA_ENABLE_PHOTO, enablePhoto)
                 putExtra(EXTRA_MAX_DURATION_MS, maxDurationMs.toLong().coerceIn(0L, 3_600_000L))
                 putExtra(EXTRA_MIN_DURATION_MS, minDurationMs.toLong().coerceIn(0L, 60_000L))
                 putExtra(EXTRA_PERF_LOGGING, perfLogging)
@@ -121,6 +124,8 @@ object MarkVideoNative {
         width: Int,
         height: Int,
         watermarkText: String,
+        photoTempFilePaths: Array<String>,
+        photoSavedFilePaths: Array<String>,
         framesReceived: Int,
         framesDroppedBusy: Int,
         framesDroppedFps: Int,
@@ -136,6 +141,8 @@ object MarkVideoNative {
             width,
             height,
             watermarkText,
+            encodePathList(photoTempFilePaths),
+            encodePathList(photoSavedFilePaths),
             framesReceived,
             framesDroppedBusy,
             framesDroppedFps,
@@ -162,7 +169,7 @@ object MarkVideoNative {
         width: Number,
         height: Number,
         fps: Number,
-        onSuccess: (String, Long, Int, Int) -> Unit,
+        onSuccess: (String, Number, Number, Number) -> Unit,
         onFail: (String) -> Unit
     ) {
         Thread {
@@ -203,6 +210,10 @@ object MarkVideoNative {
         return if (value % 2 == 0) value else value - 1
     }
 
+    private fun encodePathList(paths: Array<String>): String {
+        return paths.filter { it.isNotBlank() }.joinToString("\n")
+    }
+
     internal const val ERR_ENVIRONMENT = 1000
     internal const val ERR_PERMISSION_DENIED = 1001
     internal const val ERR_CANCELLED = 1002
@@ -212,6 +223,7 @@ object MarkVideoNative {
     internal const val ERR_NO_FRAMES = 1006
     internal const val ERR_RECORDING_TOO_SHORT = 1007
     internal const val ERR_ENCODER_UNAVAILABLE = 1008
+    internal const val ERR_PHOTO_CAPTURE_FAILED = 1009
 
     private class WatermarkMp4Encoder(
         private val output: File,

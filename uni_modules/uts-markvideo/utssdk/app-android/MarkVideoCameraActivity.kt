@@ -52,6 +52,7 @@ import android.widget.TextView
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.ArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.min
@@ -115,6 +116,9 @@ class MarkVideoCameraActivity : Activity() {
     private val cameraFacing: String by lazy {
         intent.getStringExtra(MarkVideoNative.EXTRA_CAMERA_FACING) ?: "back"
     }
+    private val enablePhoto: Boolean by lazy {
+        intent.getBooleanExtra(MarkVideoNative.EXTRA_ENABLE_PHOTO, false)
+    }
     private val maxDurationMs: Long by lazy {
         intent.getLongExtra(MarkVideoNative.EXTRA_MAX_DURATION_MS, 0L)
     }
@@ -130,6 +134,7 @@ class MarkVideoCameraActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var recordButton: Button
     private lateinit var stopButton: Button
+    private lateinit var photoButton: Button
 
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
@@ -147,6 +152,8 @@ class MarkVideoCameraActivity : Activity() {
     @Volatile private var finishingRecording = false
     private var recorder: CameraMp4Recorder? = null
     private var outputFile: File? = null
+    private val photoTempFilePaths = ArrayList<String>()
+    private val photoSavedFilePaths = ArrayList<String>()
     private var recordingStartedAt = 0L
     private var completed = false
     private var openingCamera = false
@@ -227,6 +234,10 @@ class MarkVideoCameraActivity : Activity() {
     override fun onBackPressed() {
         if (recording && !finishingRecording) {
             stopRecording(deleteFile = true)
+        }
+        if (!recording && enablePhoto && photoTempFilePaths.isNotEmpty() && !completed) {
+            completePhotoOnlyResult()
+            return
         }
         if (!completed && !finishingRecording) {
             completed = true
@@ -328,12 +339,22 @@ class MarkVideoCameraActivity : Activity() {
             isEnabled = false
             setOnClickListener { stopRecording(deleteFile = false) }
         }
+        photoButton = Button(this).apply {
+            text = "拍照"
+            visibility = if (enablePhoto) View.VISIBLE else View.GONE
+            setOnClickListener { takePhoto() }
+        }
         row.addView(recordButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
             rightMargin = dp(8)
         })
         row.addView(stopButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
             leftMargin = dp(8)
         })
+        if (enablePhoto) {
+            row.addView(photoButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                leftMargin = dp(8)
+            })
+        }
         controls.addView(row, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
@@ -358,6 +379,9 @@ class MarkVideoCameraActivity : Activity() {
         recordingSize = chooseRecordingSizeFromPreview()
         recordButton.isEnabled = false
         stopButton.isEnabled = true
+        if (::photoButton.isInitialized) {
+            photoButton.isEnabled = false
+        }
         statusView.text = "Recording with burned-in watermark..."
         recorderStartRequestedAtMs = System.currentTimeMillis()
         firstFrameLogged = false
@@ -433,6 +457,77 @@ class MarkVideoCameraActivity : Activity() {
         }
     }
 
+    private fun takePhoto() {
+        if (!enablePhoto || recording || finishingRecording || !previewView.isAvailable) return
+        if (::watermarkOverlay.isInitialized) {
+            updateWatermarkRatiosFromOverlay()
+        }
+        val photoSize = chooseRecordingSizeFromPreview()
+        photoButton.isEnabled = false
+        statusView.text = "Saving photo..."
+
+        val snapshot = previewView.getBitmap(photoSize.width, photoSize.height)
+        if (snapshot == null) {
+            photoButton.isEnabled = true
+            statusView.text = "Photo capture failed."
+            return
+        }
+
+        cameraHandler?.post {
+            val file = File(cacheDir, "uts-camera-watermark-${System.currentTimeMillis()}.jpg")
+            try {
+                drawWatermark(snapshot)
+                FileOutputStream(file).use { output ->
+                    if (!snapshot.compress(Bitmap.CompressFormat.JPEG, 92, output)) {
+                        throw MarkVideoException(
+                            MarkVideoNative.ERR_PHOTO_CAPTURE_FAILED,
+                            "Unable to encode photo."
+                        )
+                    }
+                }
+                val savedPath = publishPhotoToGallery(file)
+                photoTempFilePaths.add(file.absolutePath)
+                photoSavedFilePaths.add(savedPath)
+                runOnUiThread {
+                    photoButton.isEnabled = true
+                    statusView.text = "Photo saved to gallery."
+                }
+            } catch (throwable: Throwable) {
+                file.delete()
+                runOnUiThread {
+                    photoButton.isEnabled = true
+                    statusView.text = throwable.message ?: "Photo capture failed."
+                }
+            } finally {
+                snapshot.recycle()
+            }
+        } ?: run {
+            snapshot.recycle()
+            photoButton.isEnabled = true
+            statusView.text = "Camera thread is not running."
+        }
+    }
+
+    private fun completePhotoOnlyResult() {
+        completed = true
+        MarkVideoNative.completeCameraRecorder(
+            "",
+            "",
+            0L,
+            0,
+            0,
+            watermarkText,
+            photoTempFilePaths.toTypedArray(),
+            photoSavedFilePaths.toTypedArray(),
+            0,
+            0,
+            0,
+            0,
+            0
+        )
+        finish()
+    }
+
     private fun finishRecordingOnCameraThread(deleteFile: Boolean, stopRequestedAtMs: Long) {
         val activeRecorder = recorder
         val file = outputFile
@@ -495,6 +590,8 @@ class MarkVideoCameraActivity : Activity() {
                         activeRecorder.width,
                         activeRecorder.height,
                         watermarkText,
+                    photoTempFilePaths.toTypedArray(),
+                    photoSavedFilePaths.toTypedArray(),
                     stats.received,
                     stats.droppedBusy,
                     stats.droppedFps,
@@ -1231,6 +1328,61 @@ class MarkVideoCameraActivity : Activity() {
             this,
             arrayOf(outputFile.absolutePath),
             arrayOf("video/mp4"),
+            null
+        )
+        return Uri.fromFile(outputFile).toString()
+    }
+
+    private fun publishPhotoToGallery(source: File): String {
+        val displayName = "uts-markvideo-${System.currentTimeMillis()}.jpg"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, displayName)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/uts-markvideo")
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val resolver = contentResolver
+            val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw MarkVideoException(
+                    MarkVideoNative.ERR_PHOTO_CAPTURE_FAILED,
+                    "Unable to create gallery photo entry."
+                )
+
+            try {
+                resolver.openOutputStream(uri)?.use { output ->
+                    FileInputStream(source).use { input ->
+                        input.copyTo(output)
+                    }
+                } ?: throw MarkVideoException(
+                    MarkVideoNative.ERR_PHOTO_CAPTURE_FAILED,
+                    "Unable to write gallery photo."
+                )
+                values.clear()
+                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                return uri.toString()
+            } catch (throwable: Throwable) {
+                resolver.delete(uri, null, null)
+                throw throwable
+            }
+        }
+
+        val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        val outputDir = File(picturesDir, "uts-markvideo").apply {
+            if (!exists()) mkdirs()
+        }
+        val outputFile = File(outputDir, displayName)
+        FileInputStream(source).use { input ->
+            FileOutputStream(outputFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+        MediaScannerConnection.scanFile(
+            this,
+            arrayOf(outputFile.absolutePath),
+            arrayOf("image/jpeg"),
             null
         )
         return Uri.fromFile(outputFile).toString()

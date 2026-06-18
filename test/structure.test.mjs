@@ -262,18 +262,97 @@ test('recordWatermarkVideo result exposes gallery-saved video path', async () =>
   const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
 
   assert.match(interfaceText, /savedFilePath\?: string/);
+  assert.match(interfaceText, /photoTempFilePaths\?: string\[\]/);
+  assert.match(interfaceText, /photoSavedFilePaths\?: string\[\]/);
   assert.match(api, /savedFilePath\?: string/);
+  assert.match(api, /photoSavedFilePaths\?: string\[\]/);
   assert.match(api, /system gallery/);
   assert.match(androidBridge, /savedFilePath: savedFilePath/);
-  assert.match(nativeBridge, /onSuccess: \(String, String, Long/);
+  assert.match(androidBridge, /photoTempFilePaths: decodePathList\(photoTempFilePathsText\)/);
+  assert.match(androidBridge, /photoSavedFilePaths: decodePathList\(photoSavedFilePathsText\)/);
+  assert.match(nativeBridge, /onSuccess: \(String, String, Number/);
   assert.match(nativeBridge, /callback\?\.invoke\(\s*path,\s*savedPath,/s);
   assert.match(activity, /MediaStore\.Video\.Media/);
   assert.match(activity, /RELATIVE_PATH/);
   assert.match(activity, /IS_PENDING/);
   assert.match(activity, /Movies\/uts-markvideo/);
   assert.match(activity, /publishToGallery\(file\)/);
-  assert.match(page, /res\.savedFilePath \|\| res\.tempFilePath/);
+  assert.match(page, /const savedPath = this\.safeString\(res\.savedFilePath\)/);
+  assert.match(page, /this\.videoPath = savedPath \|\| tempPath/);
   assert.match(page, /savedFilePath/);
+});
+
+test('Android success callback avoids UTSArray bridge signature mismatches', async () => {
+  const androidBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/index.uts'),
+    'utf8',
+  );
+  const nativeBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoNative.kt'),
+    'utf8',
+  );
+  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
+
+  assert.match(nativeBridge, /pendingRecordSuccess: \(\(String, String, Number/);
+  assert.match(nativeBridge, /onSuccess: \(String, String, Number, Number, Number, String, String, String, Number/);
+  assert.match(nativeBridge, /encodePathList\(photoTempFilePaths\)/);
+  assert.match(nativeBridge, /encodePathList\(photoSavedFilePaths\)/);
+  assert.doesNotMatch(nativeBridge, /onSuccess: \(String, String, Long, Int, Int, String, Array<String>, Array<String>/);
+  assert.match(androidBridge, /photoTempFilePathsText: string/);
+  assert.match(androidBridge, /photoSavedFilePathsText: string/);
+  assert.match(androidBridge, /function decodePathList\(text: string\): string\[\]/);
+  assert.match(page, /handleRecordSuccess\(res \|\| \{\}\)/);
+  assert.match(page, /normalizeStringArray\(res\.photoSavedFilePaths\)/);
+});
+
+test('Android recorder can optionally capture watermarked photos', async () => {
+  const api = await readFile(path.join(root, 'docs/api.md'), 'utf8');
+  const interfaceText = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/interface.uts'),
+    'utf8',
+  );
+  const androidBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/index.uts'),
+    'utf8',
+  );
+  const nativeBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoNative.kt'),
+    'utf8',
+  );
+  const activity = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
+    'utf8',
+  );
+  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
+
+  assert.match(interfaceText, /enablePhoto\?: boolean/);
+  assert.match(api, /enablePhoto/);
+  assert.match(api, /Pictures\/uts-markvideo/);
+  assert.match(androidBridge, /const enablePhoto = options\.camera\?\.enablePhoto \?\? false/);
+  assert.match(androidBridge, /decodePathList\(photoTempFilePathsText\)/);
+  assert.match(nativeBridge, /EXTRA_ENABLE_PHOTO/);
+  assert.match(nativeBridge, /ERR_PHOTO_CAPTURE_FAILED = 1009/);
+  assert.match(activity, /private val enablePhoto: Boolean by lazy/);
+  assert.match(activity, /private lateinit var photoButton: Button/);
+  assert.match(activity, /visibility = if \(enablePhoto\) View\.VISIBLE else View\.GONE/);
+  assert.match(activity, /private fun takePhoto\(\)/);
+  assert.match(activity, /previewView\.getBitmap\(photoSize\.width, photoSize\.height\)/);
+  assert.match(activity, /drawWatermark\(snapshot\)/);
+  assert.match(activity, /Bitmap\.CompressFormat\.JPEG/);
+  assert.match(activity, /publishPhotoToGallery\(file\)/);
+  assert.match(activity, /MediaStore\.Images\.Media/);
+  assert.match(activity, /Pictures\/uts-markvideo/);
+  assert.match(activity, /photoSavedFilePaths\.toTypedArray\(\)/);
+  assert.match(activity, /completePhotoOnlyResult/);
+  assert.match(activity, /photoTempFilePaths\.isNotEmpty\(\)/);
+  assert.match(activity, /MarkVideoNative\.completeCameraRecorder\(\s*"",\s*"",\s*0L,/s);
+  assert.match(page, /enablePhoto: false/);
+  assert.match(page, /Photo/);
+  assert.match(page, /enablePhoto: this\.enablePhoto/);
+  assert.match(page, /photoSavedFilePaths/);
+  assert.match(page, /normalizeStringArray/);
+  assert.match(page, /Saved photos \$\{photoCount\}/);
+  assert.match(page, /1009: 'Photo capture failed'/);
 });
 
 test('recordWatermarkVideo exposes stable recorder error codes', async () => {
@@ -300,7 +379,7 @@ test('recordWatermarkVideo exposes stable recorder error codes', async () => {
     'utf8',
   );
 
-  for (const code of ['1000', '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008']) {
+  for (const code of ['1000', '1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009']) {
     assert.match(api, new RegExp(`\`${code}\``));
     assert.match(page, new RegExp(`${code}:`));
   }
@@ -323,7 +402,8 @@ test('recordWatermarkVideo exposes stable recorder error codes', async () => {
   assert.match(activity, /MarkVideoException/);
   assert.match(swift, /ErrorCode\.permissionDenied/);
   assert.match(swift, /ErrorCode\.recordingTooShort/);
-  assert.match(page, /errorLabel\(err\.errCode\)/);
+  assert.match(page, /const code = this\.safeNumber\(err\.errCode, 1000\)/);
+  assert.match(page, /errorLabel\(code\)/);
 });
 
 test('UTS interface exposes grouped recorder option types', async () => {

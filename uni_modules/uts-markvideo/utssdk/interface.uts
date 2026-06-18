@@ -42,6 +42,7 @@ export type MarkVideoVideoOptions = {
 export type MarkVideoCameraOptions = {
   facing?: string
   previewFit?: string
+  enablePhoto?: boolean
 }
 
 export type MarkVideoRecordLimits = {
@@ -64,6 +65,8 @@ export type MarkVideoFrameStats = {
 export type RecordWatermarkVideoSuccess = {
   tempFilePath: string
   savedFilePath?: string
+  photoTempFilePaths?: string[]
+  photoSavedFilePaths?: string[]
   durationMs: number
   width: number
   height: number
