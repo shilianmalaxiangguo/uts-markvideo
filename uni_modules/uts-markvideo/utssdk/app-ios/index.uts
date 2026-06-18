@@ -19,6 +19,20 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
   const maxDurationMs = options.limits?.maxDurationMs ?? 0
   const minDurationMs = options.limits?.minDurationMs ?? 0
   const perfLogging = options.diagnostics?.perfLogging ?? false
+  const imagePath = options.watermark?.imagePath ?? ''
+  const watermarkX = options.watermark?.x ?? 0.5
+  const watermarkY = options.watermark?.y ?? 0.78
+  const textColor = options.watermark?.textColor ?? '#FFFFFF'
+  const fontSize = options.watermark?.fontSize ?? 30
+  const textBold = options.watermark?.textBold ?? true
+  const imageWidth = options.watermark?.imageWidth ?? 72
+  const imageHeight = options.watermark?.imageHeight ?? 72
+  const imageGap = options.watermark?.imageGap ?? 18
+  const boxWidth = options.watermark?.boxWidth ?? 0.88
+  const boxHeight = options.watermark?.boxHeight ?? 0.16
+  const backgroundColor = options.watermark?.backgroundColor ?? '#00000099'
+  const borderRadius = options.watermark?.borderRadius ?? 18
+  const padding = options.watermark?.padding ?? 28
 
   MarkVideoRecorder.openCameraRecorder(
     text,
@@ -32,6 +46,20 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
     maxDurationMs,
     minDurationMs,
     perfLogging,
+    imagePath,
+    watermarkX,
+    watermarkY,
+    textColor,
+    fontSize,
+    textBold,
+    imageWidth,
+    imageHeight,
+    imageGap,
+    boxWidth,
+    boxHeight,
+    backgroundColor,
+    borderRadius,
+    padding,
     (
       tempFilePath: string,
       actualDurationMs: number,

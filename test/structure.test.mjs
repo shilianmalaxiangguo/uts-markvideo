@@ -399,13 +399,41 @@ test('iOS recorder shows a blinking red recording indicator and elapsed timer', 
 });
 
 test('iOS watermark preview supports whole-block drag and pinch zoom burned into output', async () => {
+  const interfaceText = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/interface.uts'),
+    'utf8',
+  );
+  const iosBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.uts'),
+    'utf8',
+  );
   const swift = await readFile(
     path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
     'utf8',
   );
 
   const drawWatermarkBody = /private func drawWatermark\(into buffer: CVPixelBuffer\) \{([\s\S]*?)\n    override func viewDidDisappear/.exec(swift)?.[1] ?? '';
+  const layoutBody = /private func watermarkDrawLayout\(canvasSize: CGSize, state: WatermarkLayoutState\) -> WatermarkDrawLayout \{([\s\S]*?)\n    private func startRecordingIndicator/.exec(swift)?.[1] ?? '';
 
+  assert.match(interfaceText, /imagePath\?: string/);
+  assert.match(interfaceText, /textColor\?: string/);
+  assert.match(interfaceText, /fontSize\?: number/);
+  assert.match(interfaceText, /imageWidth\?: number/);
+  assert.match(interfaceText, /backgroundColor\?: string/);
+  assert.match(iosBridge, /const imagePath = options\.watermark\?\.imagePath \?\? ''/);
+  assert.match(iosBridge, /const textColor = options\.watermark\?\.textColor \?\? '#FFFFFF'/);
+  assert.match(iosBridge, /const imageWidth = options\.watermark\?\.imageWidth \?\? 72/);
+  assert.match(iosBridge, /const backgroundColor = options\.watermark\?\.backgroundColor \?\? '#00000099'/);
+  assert.match(iosBridge, /imagePath,[\s\S]*watermarkX,[\s\S]*watermarkY,[\s\S]*textColor,[\s\S]*fontSize,[\s\S]*textBold,[\s\S]*imageWidth,[\s\S]*imageHeight/);
+  assert.match(swift, /private struct WatermarkRenderOptions/);
+  assert.match(swift, /let imagePath: String/);
+  assert.match(swift, /private var watermarkImageView = UIImageView\(\)/);
+  assert.match(swift, /private var watermarkImage: UIImage\?/);
+  assert.match(swift, /watermarkImage = loadWatermarkImage\(from: watermarkOptions\.imagePath\)/);
+  assert.match(swift, /private func loadWatermarkImage\(from rawPath: String\) -> UIImage\?/);
+  assert.match(swift, /UIImage\(contentsOfFile:/);
+  assert.match(swift, /watermarkImageView\.image = watermarkImage/);
+  assert.match(swift, /watermarkContainer\.addSubview\(watermarkImageView\)/);
   assert.match(swift, /UIGestureRecognizerDelegate/);
   assert.match(swift, /private var watermarkContainer = UIView\(\)/);
   assert.match(swift, /private let watermarkStateLock = NSLock\(\)/);
@@ -417,9 +445,17 @@ test('iOS watermark preview supports whole-block drag and pinch zoom burned into
   assert.match(swift, /private func updateWatermarkLayout\(center: CGPoint, scale: CGFloat\)/);
   assert.match(swift, /watermarkStateLock\.lock\(\)[\s\S]*watermarkCenterRatio = nextRatio[\s\S]*watermarkScale = nextScale[\s\S]*watermarkStateLock\.unlock\(\)/);
   assert.match(drawWatermarkBody, /let state = currentWatermarkLayoutState\(\)/);
-  assert.match(drawWatermarkBody, /CGFloat\(width\) \* state\.centerRatio\.x/);
-  assert.match(drawWatermarkBody, /CGFloat\(height\) \* state\.centerRatio\.y/);
-  assert.match(drawWatermarkBody, /state\.scale/);
+  assert.match(drawWatermarkBody, /watermarkDrawLayout\(/);
+  assert.match(drawWatermarkBody, /state: state/);
+  assert.match(layoutBody, /canvasSize\.width \* state\.centerRatio\.x/);
+  assert.match(layoutBody, /canvasSize\.height \* state\.centerRatio\.y/);
+  assert.match(layoutBody, /state\.scale/);
+  assert.match(drawWatermarkBody, /watermarkOptions\.backgroundColor\.cgColor/);
+  assert.match(drawWatermarkBody, /UIBezierPath\(\s*roundedRect: layout\.rect/);
+  assert.match(drawWatermarkBody, /if let imageRect = layout\.imageRect, let cgImage = watermarkImage\?\.cgImage/);
+  assert.match(drawWatermarkBody, /context\.draw\(cgImage, in: imageRect\)/);
+  assert.match(drawWatermarkBody, /watermarkOptions\.textBold/);
+  assert.match(drawWatermarkBody, /watermarkOptions\.textColor/);
 });
 
 test('Vue 3 app entry is declared in manifest', async () => {

@@ -19,6 +19,20 @@ public class MarkVideoRecorder: NSObject {
         _ maxDurationMs: NSNumber,
         _ minDurationMs: NSNumber,
         _ perfLogging: Bool,
+        _ imagePath: String,
+        _ x: NSNumber,
+        _ y: NSNumber,
+        _ textColor: String,
+        _ fontSize: NSNumber,
+        _ textBold: Bool,
+        _ imageWidth: NSNumber,
+        _ imageHeight: NSNumber,
+        _ imageGap: NSNumber,
+        _ boxWidth: NSNumber,
+        _ boxHeight: NSNumber,
+        _ backgroundColor: String,
+        _ borderRadius: NSNumber,
+        _ padding: NSNumber,
         _ onSuccess: @escaping (String, NSNumber, NSNumber, NSNumber, String, String, String) -> Void,
         _ onFail: @escaping (String) -> Void
     ) {
@@ -44,8 +58,25 @@ public class MarkVideoRecorder: NSObject {
                     return
                 }
                 let effectiveIncludeAudio = includeAudio && audioGranted
+                let watermarkOptions = WatermarkRenderOptions(
+                    imagePath: imagePath,
+                    x: x.doubleValue,
+                    y: y.doubleValue,
+                    textColor: textColor,
+                    fontSize: fontSize.doubleValue,
+                    textBold: textBold,
+                    imageWidth: imageWidth.doubleValue,
+                    imageHeight: imageHeight.doubleValue,
+                    imageGap: imageGap.doubleValue,
+                    boxWidth: boxWidth.doubleValue,
+                    boxHeight: boxHeight.doubleValue,
+                    backgroundColor: backgroundColor,
+                    borderRadius: borderRadius.doubleValue,
+                    padding: padding.doubleValue
+                )
                 let controller = MarkVideoRecorderViewController(
                     watermark: text.isEmpty ? "UTS 即拍即有水印" : text,
+                    watermarkOptions: watermarkOptions,
                     fps: max(8, min(24, fps.intValue)),
                     preferredWidth: max(0, width.intValue),
                     preferredHeight: max(0, height.intValue),
@@ -130,8 +161,97 @@ public class MarkVideoRecorder: NSObject {
     }
 }
 
+private struct WatermarkRenderOptions {
+    let imagePath: String
+    let x: CGFloat
+    let y: CGFloat
+    let textColor: UIColor
+    let fontSize: CGFloat
+    let textBold: Bool
+    let imageWidth: CGFloat
+    let imageHeight: CGFloat
+    let imageGap: CGFloat
+    let boxWidthRatio: CGFloat
+    let boxHeightRatio: CGFloat
+    let backgroundColor: UIColor
+    let borderRadius: CGFloat
+    let padding: CGFloat
+
+    init(
+        imagePath: String,
+        x: Double,
+        y: Double,
+        textColor: String,
+        fontSize: Double,
+        textBold: Bool,
+        imageWidth: Double,
+        imageHeight: Double,
+        imageGap: Double,
+        boxWidth: Double,
+        boxHeight: Double,
+        backgroundColor: String,
+        borderRadius: Double,
+        padding: Double
+    ) {
+        self.imagePath = imagePath
+        self.x = Self.clampRatio(CGFloat(x), fallback: 0.5)
+        self.y = Self.clampRatio(CGFloat(y), fallback: 0.78)
+        self.textColor = Self.color(from: textColor, fallback: .white)
+        self.fontSize = CGFloat(fontSize > 0 ? fontSize : 30)
+        self.textBold = textBold
+        self.imageWidth = CGFloat(imageWidth > 0 ? imageWidth : 72)
+        self.imageHeight = CGFloat(imageHeight > 0 ? imageHeight : 72)
+        self.imageGap = CGFloat(imageGap >= 0 ? imageGap : 18)
+        self.boxWidthRatio = Self.clampPositiveRatio(CGFloat(boxWidth), fallback: 0.88)
+        self.boxHeightRatio = Self.clampPositiveRatio(CGFloat(boxHeight), fallback: 0.16)
+        self.backgroundColor = Self.color(
+            from: backgroundColor,
+            fallback: UIColor.black.withAlphaComponent(0.60)
+        )
+        self.borderRadius = CGFloat(borderRadius >= 0 ? borderRadius : 18)
+        self.padding = CGFloat(padding >= 0 ? padding : 28)
+    }
+
+    private static func clampRatio(_ value: CGFloat, fallback: CGFloat) -> CGFloat {
+        guard value.isFinite else { return fallback }
+        return min(max(value, 0), 1)
+    }
+
+    private static func clampPositiveRatio(_ value: CGFloat, fallback: CGFloat) -> CGFloat {
+        guard value.isFinite && value > 0 else { return fallback }
+        return min(max(value, 0), 1)
+    }
+
+    private static func color(from raw: String, fallback: UIColor) -> UIColor {
+        var hex = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+        guard hex.count == 6 || hex.count == 8 else { return fallback }
+        var value: UInt64 = 0
+        guard Scanner(string: hex).scanHexInt64(&value) else { return fallback }
+        let red: CGFloat
+        let green: CGFloat
+        let blue: CGFloat
+        let alpha: CGFloat
+        if hex.count == 8 {
+            red = CGFloat((value & 0xFF000000) >> 24) / 255.0
+            green = CGFloat((value & 0x00FF0000) >> 16) / 255.0
+            blue = CGFloat((value & 0x0000FF00) >> 8) / 255.0
+            alpha = CGFloat(value & 0x000000FF) / 255.0
+        } else {
+            red = CGFloat((value & 0xFF0000) >> 16) / 255.0
+            green = CGFloat((value & 0x00FF00) >> 8) / 255.0
+            blue = CGFloat(value & 0x0000FF) / 255.0
+            alpha = 1.0
+        }
+        return UIColor(red: red, green: green, blue: blue, alpha: alpha)
+    }
+}
+
 private final class MarkVideoRecorderViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate, UIGestureRecognizerDelegate {
     private let watermark: String
+    private let watermarkOptions: WatermarkRenderOptions
     private let fps: Int
     private let preferredWidth: Int
     private let preferredHeight: Int
@@ -148,7 +268,11 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
 
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var watermarkContainer = UIView()
+    private var watermarkImageView = UIImageView()
     private var watermarkLabel = UILabel()
+    private var watermarkImageWidthConstraint: NSLayoutConstraint?
+    private var watermarkImageHeightConstraint: NSLayoutConstraint?
+    private var watermarkLabelTopConstraint: NSLayoutConstraint?
     private var recordingStatusView = UIView()
     private var recordingIndicatorRow = UIStackView()
     private var recordingDotView = UIView()
@@ -177,6 +301,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     private var videoFrameCount = 0
     private var videoSize = CGSize(width: 720, height: 1280)
     private var latestVideoPixelBuffer: CVPixelBuffer?
+    private var watermarkImage: UIImage?
     private let watermarkStateLock = NSLock()
     private var watermarkCenterRatio = CGPoint(x: 0.5, y: 0.78)
     private var watermarkScale: CGFloat = 1
@@ -192,8 +317,18 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         let scale: CGFloat
     }
 
+    private struct WatermarkDrawLayout {
+        let rect: CGRect
+        let imageRect: CGRect?
+        let textRect: CGRect
+        let fontSize: CGFloat
+        let cornerRadius: CGFloat
+        let padding: CGFloat
+    }
+
     init(
         watermark: String,
+        watermarkOptions: WatermarkRenderOptions,
         fps: Int,
         preferredWidth: Int,
         preferredHeight: Int,
@@ -205,6 +340,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         minDurationMs: Int
     ) {
         self.watermark = watermark
+        self.watermarkOptions = watermarkOptions
         self.fps = fps
         self.preferredWidth = preferredWidth
         self.preferredHeight = preferredHeight
@@ -214,6 +350,8 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         self.enablePhoto = enablePhoto
         self.maxDurationMs = maxDurationMs
         self.minDurationMs = minDurationMs
+        self.watermarkCenterRatio = CGPoint(x: watermarkOptions.x, y: watermarkOptions.y)
+        self.dragStartCenterRatio = self.watermarkCenterRatio
         if preferredWidth > 0 && preferredHeight > 0 {
             self.videoSize = CGSize(width: preferredWidth, height: preferredHeight)
         }
@@ -227,6 +365,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        watermarkImage = loadWatermarkImage(from: watermarkOptions.imagePath)
         buildUI()
         configureSession()
     }
@@ -255,18 +394,25 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         view.backgroundColor = .black
 
         watermarkLabel.text = watermark
-        watermarkLabel.textColor = .white
-        watermarkLabel.font = .boldSystemFont(ofSize: 18)
+        watermarkLabel.textColor = watermarkOptions.textColor
+        watermarkLabel.font = watermarkOptions.textBold ? .boldSystemFont(ofSize: 18) : .systemFont(ofSize: 18)
         watermarkLabel.textAlignment = .center
         watermarkLabel.translatesAutoresizingMaskIntoConstraints = false
+        watermarkLabel.numberOfLines = 2
 
-        watermarkContainer.backgroundColor = UIColor.black.withAlphaComponent(0.56)
-        watermarkContainer.layer.cornerRadius = 12
+        watermarkImageView.image = watermarkImage
+        watermarkImageView.contentMode = .scaleAspectFit
+        watermarkImageView.isHidden = watermarkImage == nil
+        watermarkImageView.translatesAutoresizingMaskIntoConstraints = false
+
+        watermarkContainer.backgroundColor = watermarkOptions.backgroundColor
+        watermarkContainer.layer.cornerRadius = min(14, max(8, watermarkOptions.borderRadius / 2))
         watermarkContainer.layer.shadowColor = UIColor.black.cgColor
         watermarkContainer.layer.shadowOpacity = 0.28
         watermarkContainer.layer.shadowRadius = 10
         watermarkContainer.layer.shadowOffset = CGSize(width: 0, height: 4)
         watermarkContainer.translatesAutoresizingMaskIntoConstraints = true
+        watermarkContainer.addSubview(watermarkImageView)
         watermarkContainer.addSubview(watermarkLabel)
 
         let dragGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleWatermarkLongPress(_:)))
@@ -357,11 +503,22 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             recordingStatusTopAnchor = topLayoutGuide.bottomAnchor
         }
 
+        let imageWidthConstraint = watermarkImageView.widthAnchor.constraint(equalToConstant: 0)
+        let imageHeightConstraint = watermarkImageView.heightAnchor.constraint(equalToConstant: 0)
+        let labelTopConstraint = watermarkLabel.topAnchor.constraint(equalTo: watermarkImageView.bottomAnchor, constant: 0)
+        watermarkImageWidthConstraint = imageWidthConstraint
+        watermarkImageHeightConstraint = imageHeightConstraint
+        watermarkLabelTopConstraint = labelTopConstraint
+
         NSLayoutConstraint.activate([
             watermarkLabel.leadingAnchor.constraint(equalTo: watermarkContainer.leadingAnchor, constant: 16),
             watermarkLabel.trailingAnchor.constraint(equalTo: watermarkContainer.trailingAnchor, constant: -16),
-            watermarkLabel.topAnchor.constraint(equalTo: watermarkContainer.topAnchor, constant: 10),
+            labelTopConstraint,
             watermarkLabel.bottomAnchor.constraint(equalTo: watermarkContainer.bottomAnchor, constant: -10),
+            watermarkImageView.centerXAnchor.constraint(equalTo: watermarkContainer.centerXAnchor),
+            watermarkImageView.topAnchor.constraint(equalTo: watermarkContainer.topAnchor, constant: 10),
+            imageWidthConstraint,
+            imageHeightConstraint,
             recordingStatusView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             recordingStatusView.topAnchor.constraint(equalTo: recordingStatusTopAnchor, constant: 12),
             recordingIndicatorRow.leadingAnchor.constraint(equalTo: recordingStatusView.leadingAnchor, constant: 14),
@@ -385,6 +542,16 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         )
         watermarkContainer.bounds = CGRect(origin: .zero, size: size)
         watermarkContainer.center = clampedWatermarkCenter(targetCenter, size: size)
+        let previewLayout = watermarkDrawLayout(
+            canvasSize: size,
+            state: WatermarkLayoutState(centerRatio: CGPoint(x: 0.5, y: 0.5), scale: 1)
+        )
+        watermarkImageWidthConstraint?.constant = previewLayout.imageRect?.width ?? 0
+        watermarkImageHeightConstraint?.constant = previewLayout.imageRect?.height ?? 0
+        watermarkLabelTopConstraint?.constant = previewLayout.imageRect == nil ? 0 : min(8, watermarkOptions.imageGap / 2)
+        watermarkLabel.font = watermarkOptions.textBold
+            ? .boldSystemFont(ofSize: min(20, max(13, previewLayout.fontSize)))
+            : .systemFont(ofSize: min(20, max(13, previewLayout.fontSize)))
     }
 
     @objc private func handleWatermarkLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -453,8 +620,9 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     }
 
     private func watermarkPreviewSize(scale: CGFloat) -> CGSize {
-        let baseWidth = min(max(220, view.bounds.width * 0.72), max(180, view.bounds.width - 36))
-        return CGSize(width: baseWidth * scale, height: 56 * scale)
+        let baseWidth = min(max(220, view.bounds.width * watermarkOptions.boxWidthRatio), max(180, view.bounds.width - 36))
+        let baseHeight = max(56, view.bounds.height * watermarkOptions.boxHeightRatio)
+        return CGSize(width: baseWidth * scale, height: min(baseHeight, 150) * scale)
     }
 
     private func clampedWatermarkCenter(_ center: CGPoint, size: CGSize) -> CGPoint {
@@ -475,6 +643,62 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             return view.safeAreaInsets.top
         }
         return topLayoutGuide.length
+    }
+
+    private func loadWatermarkImage(from rawPath: String) -> UIImage? {
+        let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        if let url = URL(string: path), url.isFileURL {
+            return UIImage(contentsOfFile: url.path)
+        }
+        if path.hasPrefix("file://") {
+            let filePath = String(path.dropFirst("file://".count))
+            return UIImage(contentsOfFile: filePath)
+        }
+        return UIImage(contentsOfFile: path)
+    }
+
+    private func watermarkDrawLayout(canvasSize: CGSize, state: WatermarkLayoutState) -> WatermarkDrawLayout {
+        let boxWidth = max(1, canvasSize.width * watermarkOptions.boxWidthRatio * state.scale)
+        let boxHeight = max(1, canvasSize.height * watermarkOptions.boxHeightRatio * state.scale)
+        let center = CGPoint(
+            x: canvasSize.width * state.centerRatio.x,
+            y: canvasSize.height * state.centerRatio.y
+        )
+        let rect = CGRect(
+            x: center.x - boxWidth / 2,
+            y: center.y - boxHeight / 2,
+            width: boxWidth,
+            height: boxHeight
+        )
+        let padding = min(watermarkOptions.padding * state.scale, min(boxWidth, boxHeight) * 0.28)
+        let gap = min(watermarkOptions.imageGap * state.scale, max(0, boxHeight * 0.18))
+        let hasImage = watermarkImage != nil
+        let imageWidth = min(watermarkOptions.imageWidth * state.scale, max(0, boxWidth - padding * 2))
+        let imageHeight = min(watermarkOptions.imageHeight * state.scale, max(0, boxHeight * 0.46))
+        let imageRect = hasImage && imageWidth > 0 && imageHeight > 0
+            ? CGRect(
+                x: rect.midX - imageWidth / 2,
+                y: rect.minY + padding,
+                width: imageWidth,
+                height: imageHeight
+            )
+            : nil
+        let textTop = (imageRect?.maxY ?? rect.minY + padding) + (imageRect == nil ? 0 : gap)
+        let textRect = CGRect(
+            x: rect.minX + padding,
+            y: textTop,
+            width: max(1, rect.width - padding * 2),
+            height: max(1, rect.maxY - padding - textTop)
+        )
+        return WatermarkDrawLayout(
+            rect: rect,
+            imageRect: imageRect,
+            textRect: textRect,
+            fontSize: max(10, watermarkOptions.fontSize * state.scale),
+            cornerRadius: max(0, watermarkOptions.borderRadius * state.scale),
+            padding: padding
+        )
     }
 
     private func startRecordingIndicator() {
@@ -1068,32 +1292,33 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         context.scaleBy(x: 1, y: -1)
 
         let state = currentWatermarkLayoutState()
-        let baseBandHeight = max(72, CGFloat(height) * 0.16)
-        let bandHeight = baseBandHeight * state.scale
-        let bandWidth = CGFloat(width) * 0.88 * state.scale
-        let center = CGPoint(
-            x: CGFloat(width) * state.centerRatio.x,
-            y: CGFloat(height) * state.centerRatio.y
+        let layout = watermarkDrawLayout(
+            canvasSize: CGSize(width: CGFloat(width), height: CGFloat(height)),
+            state: state
         )
-        let rect = CGRect(
-            x: center.x - bandWidth / 2,
-            y: center.y - bandHeight / 2,
-            width: bandWidth,
-            height: bandHeight
+        context.setFillColor(watermarkOptions.backgroundColor.cgColor)
+        let backgroundPath = UIBezierPath(
+            roundedRect: layout.rect,
+            cornerRadius: min(layout.cornerRadius, min(layout.rect.width, layout.rect.height) / 2)
         )
-        context.setFillColor(UIColor.black.withAlphaComponent(0.58).cgColor)
-        context.fill(rect)
+        context.addPath(backgroundPath.cgPath)
+        context.fillPath()
 
         UIGraphicsPushContext(context)
+        if let imageRect = layout.imageRect, let cgImage = watermarkImage?.cgImage {
+            context.draw(cgImage, in: imageRect)
+        }
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.boldSystemFont(ofSize: max(22, CGFloat(width) / 22) * state.scale),
-            .foregroundColor: UIColor.white,
+            .font: watermarkOptions.textBold
+                ? UIFont.boldSystemFont(ofSize: layout.fontSize)
+                : UIFont.systemFont(ofSize: layout.fontSize),
+            .foregroundColor: watermarkOptions.textColor,
             .paragraphStyle: paragraph
         ]
-        let textRect = rect.insetBy(dx: 16 * state.scale, dy: bandHeight * 0.28)
-        (watermark as NSString).draw(in: textRect, withAttributes: attributes)
+        (watermark as NSString).draw(in: layout.textRect, withAttributes: attributes)
         UIGraphicsPopContext()
         context.restoreGState()
     }
