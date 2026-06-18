@@ -474,7 +474,8 @@ test('iOS watermark preview supports whole-block drag and pinch zoom burned into
   assert.match(interfaceText, /backgroundColor\?: string/);
   assert.match(iosBridge, /const imagePath = options\.watermark\?\.imagePath \?\? ''/);
   assert.match(iosBridge, /const textColor = options\.watermark\?\.textColor \?\? '#FFFFFF'/);
-  assert.match(iosBridge, /const imageWidth = options\.watermark\?\.imageWidth \?\? 72/);
+  assert.match(iosBridge, /const imageWidth = options\.watermark\?\.imageWidth \?\? 0/);
+  assert.match(iosBridge, /const imageHeight = options\.watermark\?\.imageHeight \?\? 0/);
   assert.match(iosBridge, /const backgroundColor = options\.watermark\?\.backgroundColor \?\? '#00000099'/);
   assert.match(iosBridge, /imagePath,[\s\S]*watermarkX,[\s\S]*watermarkY,[\s\S]*textColor,[\s\S]*fontSize,[\s\S]*textBold,[\s\S]*imageWidth,[\s\S]*imageHeight/);
   assert.match(swift, /private struct WatermarkRenderOptions/);
@@ -489,6 +490,8 @@ test('iOS watermark preview supports whole-block drag and pinch zoom burned into
   assert.match(swift, /UIGestureRecognizerDelegate/);
   assert.match(swift, /private var watermarkContainer = UIView\(\)/);
   assert.match(swift, /private var watermarkLabelLeadingConstraint: NSLayoutConstraint\?/);
+  assert.match(swift, /watermarkLabel\.numberOfLines = 0/);
+  assert.match(swift, /watermarkLabel\.lineBreakMode = \.byCharWrapping/);
   assert.match(swift, /private let watermarkStateLock = NSLock\(\)/);
   assert.match(swift, /private var watermarkCenterRatio = CGPoint\(x: 0\.5, y: 0\.78\)/);
   assert.match(swift, /private var watermarkScale: CGFloat = 1/);
@@ -496,11 +499,23 @@ test('iOS watermark preview supports whole-block drag and pinch zoom burned into
   assert.match(swift, /UIPinchGestureRecognizer\(target: self, action: #selector\(handleWatermarkPinch\(_:?\)\)\)/);
   assert.match(swift, /shouldRecognizeSimultaneouslyWith otherGestureRecognizer/);
   assert.match(swift, /private func updateWatermarkLayout\(center: CGPoint, scale: CGFloat\)/);
-  assert.match(swift, /watermarkStateLock\.lock\(\)[\s\S]*watermarkCenterRatio = nextRatio[\s\S]*watermarkScale = nextScale[\s\S]*watermarkStateLock\.unlock\(\)/);
+  assert.match(swift, /private func storeWatermarkLayout\(center: CGPoint, canvasSize: CGSize, scale: CGFloat\)/);
+  assert.match(swift, /watermarkStateLock\.lock\(\)[\s\S]*watermarkCenterRatio = nextRatio[\s\S]*watermarkScale = scale[\s\S]*watermarkStateLock\.unlock\(\)/);
+  assert.match(swift, /let clampedCenter = clampedWatermarkPreviewCenter\(targetCenter, size: size\)[\s\S]*storeWatermarkLayout\(center: clampedCenter, canvasSize: view\.bounds\.size, scale: state\.scale\)/);
   assert.match(drawWatermarkBody, /let state = currentWatermarkLayoutState\(\)/);
   assert.match(drawWatermarkBody, /watermarkDrawLayout\(/);
   assert.match(drawWatermarkBody, /state: state/);
   assert.match(swift, /private func watermarkBoxSize\(canvasSize: CGSize, scale: CGFloat\) -> CGSize/);
+  assert.match(swift, /self\.imageWidth = CGFloat\(imageWidth > 0 \? imageWidth : 0\)/);
+  assert.match(swift, /self\.imageHeight = CGFloat\(imageHeight > 0 \? imageHeight : 0\)/);
+  assert.match(swift, /let imageAspectRatio = max\(0\.01,/);
+  assert.match(swift, /else if optionWidth > 0 \{[\s\S]*requestedHeight = optionWidth \/ imageAspectRatio/);
+  assert.match(swift, /else if optionHeight > 0 \{[\s\S]*requestedWidth = optionHeight \* imageAspectRatio/);
+  assert.match(swift, /private func measuredWatermarkTextHeight\(maxWidth: CGFloat, font: UIFont\) -> CGFloat/);
+  assert.match(swift, /private func clampedWatermarkCenter\([\s\S]*canvasSize: CGSize,[\s\S]*topInset: CGFloat,[\s\S]*bottomInset: CGFloat,[\s\S]*margin: CGFloat/);
+  assert.match(layoutBody, /let clampedCenter = clampedWatermarkCenter\([\s\S]*canvasSize: canvasSize,[\s\S]*topInset: 0,[\s\S]*bottomInset: 0,[\s\S]*margin: 0/);
+  assert.match(swift, /let contentHeight = padding \* 2 \+ imageSize\.height \+ gap \+ textHeight/);
+  assert.match(swift, /height: max\(1, ceil\(max\(baseHeight, contentHeight\)\)\)/);
   assert.match(swift, /private func watermarkPreviewLayout\(size: CGSize, scale: CGFloat\) -> WatermarkDrawLayout/);
   assert.match(swift, /private func watermarkContentLayout\(rect: CGRect, scale: CGFloat\) -> WatermarkDrawLayout/);
   assert.match(swift, /let previewLayout = watermarkPreviewLayout\(size: size, scale: state\.scale\)/);
@@ -514,6 +529,10 @@ test('iOS watermark preview supports whole-block drag and pinch zoom burned into
   assert.match(drawWatermarkBody, /context\.draw\(cgImage, in: imageRect\)/);
   assert.match(drawWatermarkBody, /watermarkOptions\.textBold/);
   assert.match(drawWatermarkBody, /watermarkOptions\.textColor/);
+  assert.match(drawWatermarkBody, /\.byCharWrapping/);
+  assert.match(drawWatermarkBody, /NSAttributedString\(string: watermark, attributes: attributes\)\.draw\([\s\S]*\.usesLineFragmentOrigin/);
+  assert.doesNotMatch(layoutBody, /boxHeight \* 0\.46/);
+  assert.doesNotMatch(drawWatermarkBody, /byTruncatingTail/);
 });
 
 test('Vue 3 app entry is declared in manifest', async () => {

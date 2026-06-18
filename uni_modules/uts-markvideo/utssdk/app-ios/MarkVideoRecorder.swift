@@ -199,8 +199,8 @@ private struct WatermarkRenderOptions {
         self.textColor = Self.color(from: textColor, fallback: .white)
         self.fontSize = CGFloat(fontSize > 0 ? fontSize : 30)
         self.textBold = textBold
-        self.imageWidth = CGFloat(imageWidth > 0 ? imageWidth : 72)
-        self.imageHeight = CGFloat(imageHeight > 0 ? imageHeight : 72)
+        self.imageWidth = CGFloat(imageWidth > 0 ? imageWidth : 0)
+        self.imageHeight = CGFloat(imageHeight > 0 ? imageHeight : 0)
         self.imageGap = CGFloat(imageGap >= 0 ? imageGap : 18)
         self.boxWidthRatio = Self.clampPositiveRatio(CGFloat(boxWidth), fallback: 0.88)
         self.boxHeightRatio = Self.clampPositiveRatio(CGFloat(boxHeight), fallback: 0.16)
@@ -403,7 +403,8 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         watermarkLabel.font = watermarkOptions.textBold ? .boldSystemFont(ofSize: 18) : .systemFont(ofSize: 18)
         watermarkLabel.textAlignment = .center
         watermarkLabel.translatesAutoresizingMaskIntoConstraints = false
-        watermarkLabel.numberOfLines = 2
+        watermarkLabel.numberOfLines = 0
+        watermarkLabel.lineBreakMode = .byCharWrapping
 
         watermarkImageView.image = watermarkImage
         watermarkImageView.contentMode = .scaleAspectFit
@@ -553,8 +554,10 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             x: state.centerRatio.x * view.bounds.width,
             y: state.centerRatio.y * view.bounds.height
         )
+        let clampedCenter = clampedWatermarkPreviewCenter(targetCenter, size: size)
         watermarkContainer.bounds = CGRect(origin: .zero, size: size)
-        watermarkContainer.center = clampedWatermarkCenter(targetCenter, size: size)
+        watermarkContainer.center = clampedCenter
+        storeWatermarkLayout(center: clampedCenter, canvasSize: view.bounds.size, scale: state.scale)
         let previewLayout = watermarkPreviewLayout(size: size, scale: state.scale)
         watermarkContainer.layer.cornerRadius = min(previewLayout.cornerRadius, min(size.width, size.height) / 2)
         watermarkImageWidthConstraint?.constant = previewLayout.imageRect?.width ?? 0
@@ -615,16 +618,21 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         guard view.bounds.width > 0 && view.bounds.height > 0 else { return }
         let nextScale = min(max(scale, 0.6), 2.2)
         let size = watermarkBoxSize(canvasSize: view.bounds.size, scale: nextScale)
-        let clampedCenter = clampedWatermarkCenter(center, size: size)
+        let clampedCenter = clampedWatermarkPreviewCenter(center, size: size)
+        storeWatermarkLayout(center: clampedCenter, canvasSize: view.bounds.size, scale: nextScale)
+        layoutWatermarkPreview()
+    }
+
+    private func storeWatermarkLayout(center: CGPoint, canvasSize: CGSize, scale: CGFloat) {
+        guard canvasSize.width > 0 && canvasSize.height > 0 else { return }
         let nextRatio = CGPoint(
-            x: min(max(clampedCenter.x / view.bounds.width, 0), 1),
-            y: min(max(clampedCenter.y / view.bounds.height, 0), 1)
+            x: min(max(center.x / canvasSize.width, 0), 1),
+            y: min(max(center.y / canvasSize.height, 0), 1)
         )
         watermarkStateLock.lock()
         watermarkCenterRatio = nextRatio
-        watermarkScale = nextScale
+        watermarkScale = scale
         watermarkStateLock.unlock()
-        layoutWatermarkPreview()
     }
 
     private func currentWatermarkLayoutState() -> WatermarkLayoutState {
@@ -635,19 +643,100 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     }
 
     private func watermarkBoxSize(canvasSize: CGSize, scale: CGFloat) -> CGSize {
+        let baseWidth = max(1, canvasSize.width * watermarkOptions.boxWidthRatio * scale)
+        let baseHeight = max(1, canvasSize.height * watermarkOptions.boxHeightRatio * scale)
+        let padding = watermarkPadding(boxWidth: baseWidth, scale: scale)
+        let contentWidth = max(1, baseWidth - padding * 2)
+        let imageSize = watermarkImageSize(maxContentWidth: contentWidth, scale: scale)
+        let gap = imageSize.height > 0 ? max(0, watermarkOptions.imageGap * scale) : 0
+        let font = watermarkFont(scale: scale)
+        let textHeight = measuredWatermarkTextHeight(maxWidth: contentWidth, font: font)
+        let contentHeight = padding * 2 + imageSize.height + gap + textHeight
         return CGSize(
-            width: max(1, canvasSize.width * watermarkOptions.boxWidthRatio * scale),
-            height: max(1, canvasSize.height * watermarkOptions.boxHeightRatio * scale)
+            width: baseWidth,
+            height: max(1, ceil(max(baseHeight, contentHeight)))
         )
     }
 
-    private func clampedWatermarkCenter(_ center: CGPoint, size: CGSize) -> CGPoint {
-        let horizontalMargin = size.width / 2 + 18
-        let minX = min(horizontalMargin, view.bounds.midX)
-        let maxX = max(view.bounds.width - horizontalMargin, view.bounds.midX)
-        let minY = topSafeInset() + size.height / 2 + 18
+    private func watermarkFont(scale: CGFloat) -> UIFont {
+        let fontSize = max(10, watermarkOptions.fontSize * scale)
+        return watermarkOptions.textBold
+            ? .boldSystemFont(ofSize: fontSize)
+            : .systemFont(ofSize: fontSize)
+    }
+
+    private func watermarkPadding(boxWidth: CGFloat, scale: CGFloat) -> CGFloat {
+        return min(watermarkOptions.padding * scale, boxWidth * 0.28)
+    }
+
+    private func watermarkImageSize(maxContentWidth: CGFloat, scale: CGFloat) -> CGSize {
+        guard watermarkImage != nil else { return .zero }
+        let imageAspectRatio = max(0.01, (watermarkImage?.size.width ?? 1) / max(1, watermarkImage?.size.height ?? 1))
+        let optionWidth = watermarkOptions.imageWidth * scale
+        let optionHeight = watermarkOptions.imageHeight * scale
+        let requestedWidth: CGFloat
+        let requestedHeight: CGFloat
+        if optionWidth > 0 && optionHeight > 0 {
+            requestedWidth = optionWidth
+            requestedHeight = optionHeight
+        } else if optionWidth > 0 {
+            requestedWidth = optionWidth
+            requestedHeight = optionWidth / imageAspectRatio
+        } else if optionHeight > 0 {
+            requestedWidth = optionHeight * imageAspectRatio
+            requestedHeight = optionHeight
+        } else {
+            requestedWidth = 72 * scale
+            requestedHeight = 72 * scale
+        }
+        guard requestedWidth > 0 && requestedHeight > 0 && maxContentWidth > 0 else { return .zero }
+
+        let width = min(requestedWidth, maxContentWidth)
+        return CGSize(width: width, height: requestedHeight * (width / requestedWidth))
+    }
+
+    private func measuredWatermarkTextHeight(maxWidth: CGFloat, font: UIFont) -> CGFloat {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byCharWrapping
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .paragraphStyle: paragraph
+        ]
+        let rect = (watermark as NSString).boundingRect(
+            with: CGSize(width: max(1, maxWidth), height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        )
+        return max(ceil(font.lineHeight), ceil(rect.height))
+    }
+
+    private func clampedWatermarkPreviewCenter(_ center: CGPoint, size: CGSize) -> CGPoint {
         let controlTop = controlPanel.frame.minY > 0 ? controlPanel.frame.minY : view.bounds.height
-        let maxY = max(controlTop - size.height / 2 - 18, minY)
+        return clampedWatermarkCenter(
+            center,
+            size: size,
+            canvasSize: view.bounds.size,
+            topInset: topSafeInset(),
+            bottomInset: max(0, view.bounds.height - controlTop),
+            margin: 18
+        )
+    }
+
+    private func clampedWatermarkCenter(
+        _ center: CGPoint,
+        size: CGSize,
+        canvasSize: CGSize,
+        topInset: CGFloat,
+        bottomInset: CGFloat,
+        margin: CGFloat
+    ) -> CGPoint {
+        let horizontalMargin = size.width / 2 + margin
+        let minX = min(horizontalMargin, canvasSize.width / 2)
+        let maxX = max(canvasSize.width - horizontalMargin, canvasSize.width / 2)
+        let minY = min(topInset + size.height / 2 + margin, canvasSize.height / 2)
+        let maxY = max(canvasSize.height - bottomInset - size.height / 2 - margin, minY)
         return CGPoint(
             x: min(max(center.x, minX), maxX),
             y: min(max(center.y, minY), maxY)
@@ -696,9 +785,17 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             x: canvasSize.width * state.centerRatio.x,
             y: canvasSize.height * state.centerRatio.y
         )
+        let clampedCenter = clampedWatermarkCenter(
+            center,
+            size: boxSize,
+            canvasSize: canvasSize,
+            topInset: 0,
+            bottomInset: 0,
+            margin: 0
+        )
         let rect = CGRect(
-            x: center.x - boxSize.width / 2,
-            y: center.y - boxSize.height / 2,
+            x: clampedCenter.x - boxSize.width / 2,
+            y: clampedCenter.y - boxSize.height / 2,
             width: boxSize.width,
             height: boxSize.height
         )
@@ -711,18 +808,15 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
 
     private func watermarkContentLayout(rect: CGRect, scale: CGFloat) -> WatermarkDrawLayout {
         let boxWidth = rect.width
-        let boxHeight = rect.height
-        let padding = min(watermarkOptions.padding * scale, min(boxWidth, boxHeight) * 0.28)
-        let gap = min(watermarkOptions.imageGap * scale, max(0, boxHeight * 0.18))
-        let hasImage = watermarkImage != nil
-        let imageWidth = min(watermarkOptions.imageWidth * scale, max(0, boxWidth - padding * 2))
-        let imageHeight = min(watermarkOptions.imageHeight * scale, max(0, boxHeight * 0.46))
-        let imageRect = hasImage && imageWidth > 0 && imageHeight > 0
+        let padding = watermarkPadding(boxWidth: boxWidth, scale: scale)
+        let imageSize = watermarkImageSize(maxContentWidth: max(0, boxWidth - padding * 2), scale: scale)
+        let gap = imageSize.height > 0 ? max(0, watermarkOptions.imageGap * scale) : 0
+        let imageRect = imageSize.width > 0 && imageSize.height > 0
             ? CGRect(
-                x: rect.midX - imageWidth / 2,
+                x: rect.midX - imageSize.width / 2,
                 y: rect.minY + padding,
-                width: imageWidth,
-                height: imageHeight
+                width: imageSize.width,
+                height: imageSize.height
             )
             : nil
         let textTop = (imageRect?.maxY ?? rect.minY + padding) + (imageRect == nil ? 0 : gap)
@@ -736,7 +830,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             rect: rect,
             imageRect: imageRect,
             textRect: textRect,
-            fontSize: max(10, watermarkOptions.fontSize * scale),
+            fontSize: watermarkFont(scale: scale).pointSize,
             cornerRadius: max(0, watermarkOptions.borderRadius * scale),
             padding: padding
         )
@@ -1360,7 +1454,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         }
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        paragraph.lineBreakMode = .byTruncatingTail
+        paragraph.lineBreakMode = .byCharWrapping
         let attributes: [NSAttributedString.Key: Any] = [
             .font: watermarkOptions.textBold
                 ? UIFont.boldSystemFont(ofSize: layout.fontSize)
@@ -1368,7 +1462,11 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             .foregroundColor: watermarkOptions.textColor,
             .paragraphStyle: paragraph
         ]
-        (watermark as NSString).draw(in: layout.textRect, withAttributes: attributes)
+        NSAttributedString(string: watermark, attributes: attributes).draw(
+            with: layout.textRect,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        )
         UIGraphicsPopContext()
         context.restoreGState()
     }

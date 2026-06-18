@@ -51,7 +51,7 @@
 | `textBold` | `boolean` / `true` | 是否加粗。 |
 | `imageWidth` / `imageHeight` | `number` / `72` | 图片水印尺寸，单位 px；只给一边时保持原始比例。 |
 | `imageGap` | `number` / `18` | 图片与文字间距，单位 px。 |
-| `boxWidth` / `boxHeight` | `number` / `0.88, 0.16` | 水印容器宽高，按输出画面比例计算。 |
+| `boxWidth` / `boxHeight` | `number` / `0.88, 0.16` | 水印容器宽度和首选最小高度，按输出画面比例计算；图片 + 文字组合水印需要允许高度自适应，避免文字被裁切。 |
 | `backgroundColor` | `string` / `#00000099` | 水印容器底色。 |
 | `borderRadius` | `number` / `18` | 圆角，单位 px。 |
 | `padding` | `number` / `28` | 内边距，单位 px。 |

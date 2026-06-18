@@ -1,8 +1,9 @@
 # uts-markvideo API
 
-This document defines the shared Page and native plugin contract. Native Android
-and iOS recorders only consume prepared watermark options; API requests and image
-asset preparation belong to the Page layer.
+This document defines the shared Page and native plugin contract. iOS implements
+this contract now; Android should align to it when the Android native camera is
+updated. Native recorders only consume prepared watermark options; API requests
+and image asset preparation belong to the Page layer.
 
 ## Watermark Image Source
 
@@ -112,8 +113,9 @@ recordWatermarkVideo({
 - `textBold`: whether text is drawn bold.
 - `imageWidth` / `imageHeight`: logo size in output pixels.
 - `imageGap`: vertical gap between logo and text in output pixels.
-- `boxWidth` / `boxHeight`: watermark box size as ratios of output width and
-  height.
+- `boxWidth` / `boxHeight`: watermark box width and preferred minimum height
+  as ratios of output width and height. Mixed image + text watermarks may expand
+  taller so the logo and text are not clipped.
 - `backgroundColor`: watermark box background color.
 - `borderRadius`: watermark box corner radius in output pixels.
 - `padding`: watermark box inner padding in output pixels.
