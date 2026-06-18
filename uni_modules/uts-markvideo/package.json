@@ -15,6 +15,7 @@
     "HBuilderX": "^4.0.0"
   },
   "dcloudext": {
+    "type": "component-uts",
     "category": [
       "UTS插件"
     ],

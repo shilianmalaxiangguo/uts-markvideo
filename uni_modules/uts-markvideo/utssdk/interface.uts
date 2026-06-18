@@ -10,6 +10,54 @@ export type MarkVideoFail = {
   errMsg: string
 }
 
+export type EmbeddedCameraResult = {
+  success: boolean
+  errorCode: string
+  errorMessage: string
+  nativeMessage: string
+  data: any
+}
+
+export type EmbeddedCameraMountOptions = {
+  containerId: string
+  previewWidth: number
+  previewHeight: number
+  cameraFacing?: string
+  zoom?: string
+  flashEnabled?: boolean
+}
+
+export type WatermarkTemplate = {
+  templateId: string
+  templateName: string
+  templateType: string
+  mainTitleText?: string
+  subtitleText?: string
+  mainTitleColor?: string
+  subtitleColor?: string
+  mainTitleFontSize?: number
+  subtitleFontSize?: number
+  mainTitleBold?: boolean
+  subtitleBold?: boolean
+  imagePath?: string
+  imageMimeType?: string
+  imageWidth?: number
+  imageHeight?: number
+  imageTextGap?: number
+  boxWidth?: number
+  boxHeight?: number
+  boxBackgroundColor?: string
+  boxRadius?: number
+  boxPadding?: number
+  positionX?: number
+  positionY?: number
+}
+
+export type EmbeddedCameraMediaOptions = {
+  watermark?: MarkVideoWatermarkOptions
+  watermarkTemplate?: WatermarkTemplate
+}
+
 export type RecordWatermarkVideoSuccess = {
   kind?: 'recording' | 'photo'
   tempFilePath: string
@@ -53,6 +101,18 @@ export type CreateWatermarkSampleOptions = {
 export type CreateWatermarkSample = (
   options: CreateWatermarkSampleOptions
 ) => void
+
+export type MountCamera = (options: EmbeddedCameraMountOptions) => EmbeddedCameraResult
+export type SetWatermark = (template: WatermarkTemplate) => EmbeddedCameraResult
+export type ClearWatermark = () => EmbeddedCameraResult
+export type GetWatermarkPosition = () => EmbeddedCameraResult
+export type TakePhoto = (options: EmbeddedCameraMediaOptions) => EmbeddedCameraResult
+export type StartRecord = (options?: EmbeddedCameraMediaOptions) => EmbeddedCameraResult
+export type StopRecord = () => EmbeddedCameraResult
+export type SwitchFlash = (enabled: boolean) => EmbeddedCameraResult
+export type SetZoom = (zoom: string) => EmbeddedCameraResult
+export type SwitchCamera = (cameraFacing: string) => EmbeddedCameraResult
+export type DestroyCamera = () => EmbeddedCameraResult
 
 export type MarkVideoWatermarkOptions = {
   text?: string

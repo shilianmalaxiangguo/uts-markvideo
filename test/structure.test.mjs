@@ -1,5 +1,6 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -7,14 +8,22 @@ const root = path.resolve(import.meta.dirname, '..');
 
 const requiredFiles = [
   'README.md',
+  'docs/api.md',
+  'docs/embedded-camera-component-prd.md',
+  'camera-prototype.html',
   'App.vue',
   'main.js',
   'manifest.json',
   'pages.json',
   'pages/index/index.vue',
-  'static/watermark/company-logo.svg',
+  'pages/index/cameraService.js',
+  'pages/camera/camera.vue',
+  'static/watermark/watermark-demo.png',
+  'uni_modules/uts-markvideo/components/uts-markvideo-camera/uts-markvideo-camera.vue',
   'uni_modules/uts-markvideo/package.json',
   'uni_modules/uts-markvideo/utssdk/interface.uts',
+  'uni_modules/uts-markvideo/utssdk/app-ios/index.vue',
+  'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoEmbeddedCameraView.swift',
   'uni_modules/uts-markvideo/utssdk/app-android/index.uts',
   'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt',
   'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoNative.kt',
@@ -24,7 +33,7 @@ const requiredFiles = [
   'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift',
 ];
 
-test('demo app contains the native UTS plugin MVP files', async () => {
+test('project contains the embedded camera PRD implementation files', async () => {
   for (const file of requiredFiles) {
     await access(path.join(root, file));
   }
@@ -38,268 +47,392 @@ test('plugin package is named uts-markvideo', async () => {
   const pkg = JSON.parse(text);
   assert.equal(pkg.id, 'uts-markvideo');
   assert.equal(pkg.name, 'uts-markvideo');
+  assert.equal(pkg.dcloudext.type, 'component-uts');
 });
 
-test('camera MVP exposes a recordWatermarkVideo API', async () => {
+test('main docs make the embedded-camera PRD authoritative over legacy APIs', async () => {
+  const api = await readFile(path.join(root, 'docs/api.md'), 'utf8');
+  const prd = await readFile(path.join(root, 'docs/embedded-camera-component-prd.md'), 'utf8');
+
+  assert.match(api, /docs\/embedded-camera-component-prd\.md/);
+  assert.match(api, /不作为新组件功能清单/);
+  assert.match(api, /旧 `recordWatermarkVideo` API 只作为迁移参考/);
+  assert.match(api, /业务页面只能依赖 PRD 的 service\/facade/);
+  assert.match(prd, /页面内嵌原生相机组件/);
+  assert.match(prd, /统一 service\/facade/);
+  assert.match(prd, /title_text/);
+  assert.match(prd, /title_subtitle_text/);
+  assert.match(prd, /image_title_subtitle/);
+});
+
+test('App.vue simulator page carries three default templates into business camera page', async () => {
+  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
+  const service = await readFile(path.join(root, 'pages/index/cameraService.js'), 'utf8');
+
+  assert.match(service, /DEFAULT_WATERMARK_TEMPLATES/);
+  assert.match(service, /templateId: 'title-only'/);
+  assert.match(service, /templateId: 'title-subtitle'/);
+  assert.match(service, /templateId: 'png-title-subtitle'/);
+  assert.match(service, /imageMimeType: 'image\/png'/);
+  assert.match(service, /imagePath: '\/static\/watermark\/watermark-demo\.png'/);
+  assert.match(page, /DEFAULT_WATERMARK_TEMPLATES/);
+  assert.match(page, /uni\.setStorageSync\('embedded-camera-payload'/);
+  assert.match(page, /uni\.navigateTo\(\{[\s\S]*url: '\/pages\/camera\/camera'/);
+  assert.match(page, /模拟模板编辑/);
+});
+
+test('business camera page embeds the native camera component and owns camera controls', async () => {
+  const cameraPage = await readFile(path.join(root, 'pages/camera/camera.vue'), 'utf8');
+  const pagesJson = await readFile(path.join(root, 'pages.json'), 'utf8');
+
+  assert.match(pagesJson, /pages\/camera\/camera/);
+  assert.match(cameraPage, /<uts-markvideo-camera/);
+  assert.match(cameraPage, /ref="embeddedCamera"/);
+  assert.match(cameraPage, /createCameraService/);
+  assert.match(cameraPage, /uni\.getStorageSync\('embedded-camera-payload'\)/);
+  assert.match(cameraPage, /nativeCamera: this\.\$refs\.embeddedCamera/);
+  assert.match(cameraPage, /onCameraReady/);
+  assert.match(cameraPage, /onPhotoDone/);
+  assert.match(cameraPage, /onRecordStart/);
+  assert.match(cameraPage, /onRecordDone/);
+  assert.match(cameraPage, /onError/);
+  assert.match(cameraPage, /toggleFlash/);
+  assert.match(cameraPage, /selectZoom/);
+  assert.match(cameraPage, /pressShutter/);
+  assert.match(cameraPage, /templateSheetOpen/);
+  assert.match(cameraPage, /视频/);
+  assert.match(cameraPage, /照片/);
+  assert.match(cameraPage, /广角/);
+  assert.match(cameraPage, /class="templateButton"/);
+  assert.match(cameraPage, /isRecording/);
+  assert.doesNotMatch(cameraPage, /class="watermarkBox"/);
+});
+
+test('business page depends on cameraService rather than direct legacy recorder API', async () => {
+  const indexPage = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
+  const cameraPage = await readFile(path.join(root, 'pages/camera/camera.vue'), 'utf8');
+  const service = await readFile(path.join(root, 'pages/index/cameraService.js'), 'utf8');
+
+  assert.doesNotMatch(indexPage, /recordWatermarkVideo/);
+  assert.doesNotMatch(cameraPage, /recordWatermarkVideo/);
+  assert.doesNotMatch(service, /recordWatermarkVideo/);
+  assert.doesNotMatch(service, /@\/uni_modules\/uts-markvideo/);
+  assert.match(service, /createCameraService/);
+  assert.match(service, /validateWatermarkTemplate/);
+  assert.match(service, /callNative\(nativeCamera, 'mountCamera'/);
+  assert.match(service, /function createResult\(success, data, errorCode, errorMessage, nativeMessage\)/);
+  assert.match(service, /success: success/);
+  assert.match(service, /return createResult\(true, data, '', '', ''\)/);
+  assert.match(service, /errorCode: success \? '' : errorCode/);
+  assert.match(service, /data: success \? \(data \|\| \{\}\) : \{\}/);
+  assert.match(service, /录像中不能切换水印模板/);
+  assert.match(service, /录像中不能切换摄像头/);
+  assert.match(service, /frozenTemplate = cloneTemplate\(currentTemplate\)/);
+  assert.match(service, /nativeCamera = options\.nativeCamera/);
+});
+
+test('cameraService normalizes templates and drives the embedded component instance', async () => {
+  const moduleUrl = pathToFileURL(path.join(root, 'pages/index/cameraService.js')).href;
+  const {
+    createCameraService,
+    normalizeWatermarkTemplate,
+  } = await import(moduleUrl);
+  const events = [];
+  const nativeCalls = [];
+  const ok = (data = {}) => ({
+    success: true,
+    errorCode: '',
+    errorMessage: '',
+    nativeMessage: '',
+    data,
+  });
+  const nativeCamera = {
+    async mountCamera(options) {
+      nativeCalls.push(['mountCamera', options]);
+      return ok({
+        availableZooms: ['wide', '1x', '2x'],
+        zoom: options.zoom,
+        flashAvailable: true,
+        flashEnabled: options.flashEnabled,
+        cameraFacing: options.cameraFacing,
+        previewWidth: options.previewWidth,
+        previewHeight: options.previewHeight,
+      });
+    },
+    async setWatermark(template) {
+      nativeCalls.push(['setWatermark', template]);
+      return ok({});
+    },
+    async takePhoto(options) {
+      nativeCalls.push(['takePhoto', options]);
+      return ok({
+        tempFilePath: '/tmp/photo.jpg',
+        albumFilePath: '/album/photo.jpg',
+        width: 1080,
+        height: 1920,
+        watermarkTemplateId: options.watermarkTemplate.templateId,
+        watermarkPositionX: options.watermarkTemplate.positionX,
+        watermarkPositionY: options.watermarkTemplate.positionY,
+        watermarkBoxWidth: options.watermarkTemplate.boxWidth,
+        watermarkBoxHeight: options.watermarkTemplate.boxHeight,
+        watermarkTemplateSnapshot: options.watermarkTemplate,
+      });
+    },
+    async startRecord(options) {
+      nativeCalls.push(['startRecord', options]);
+      return ok({});
+    },
+    async stopRecord() {
+      nativeCalls.push(['stopRecord']);
+      return ok({
+        tempFilePath: '/tmp/video.mp4',
+        albumFilePath: '/album/video.mp4',
+        durationMs: 1200,
+        width: 1080,
+        height: 1920,
+        watermarkTemplateId: 'title-only',
+        watermarkPositionX: 0.18,
+        watermarkPositionY: 0.25,
+        watermarkBoxWidth: 0.64,
+        watermarkBoxHeight: 0.14,
+        watermarkTemplateSnapshot: { templateId: 'title-only' },
+      });
+    },
+    async switchFlash(enabled) {
+      nativeCalls.push(['switchFlash', enabled]);
+      return ok({ enabled });
+    },
+    async setZoom(zoom) {
+      nativeCalls.push(['setZoom', zoom]);
+      return ok({ zoom });
+    },
+    async switchCamera(cameraFacing) {
+      nativeCalls.push(['switchCamera', cameraFacing]);
+      return ok({ cameraFacing });
+    },
+    async clearWatermark() {
+      nativeCalls.push(['clearWatermark']);
+      return ok({});
+    },
+    async getWatermarkPosition() {
+      nativeCalls.push(['getWatermarkPosition']);
+      return ok({ x: 0.18, y: 0.25, width: 0.64, height: 0.14 });
+    },
+    async destroyCamera() {
+      nativeCalls.push(['destroyCamera']);
+      return ok({});
+    },
+  };
+  const service = createCameraService({
+    onCameraReady: (payload) => events.push(['ready', payload]),
+    onPhotoDone: (payload) => events.push(['photo', payload]),
+    onRecordStart: (payload) => events.push(['recordStart', payload]),
+    onRecordDone: (payload) => events.push(['recordDone', payload]),
+    onError: (payload) => events.push(['error', payload]),
+  });
+  const partialTemplate = {
+    templateId: 'title-only',
+    templateName: '纯主标题',
+    templateType: 'title_text',
+    mainTitleText: '今日水印相机',
+  };
+  const normalized = normalizeWatermarkTemplate(partialTemplate);
+  assert.equal(normalized.reason, '');
+  assert.equal(normalized.template.subtitleText, '');
+  assert.equal(normalized.template.imageWidth, 0);
+  assert.equal(normalized.template.mainTitleColor, '#26313B');
+
+  assert.deepEqual(await service.mountCamera({
+    nativeCamera,
+    containerId: 'embeddedCamera',
+    previewWidth: 390,
+    previewHeight: 560,
+    cameraFacing: 'back',
+    zoom: '1x',
+    flashEnabled: false,
+  }), ok({}));
+  assert.deepEqual(await service.setWatermark(partialTemplate), ok({}));
+  const photoResult = await service.takePhoto();
+  assert.equal(photoResult.success, true);
+  assert.equal(photoResult.data.tempFilePath, '/tmp/photo.jpg');
+  assert.equal(photoResult.data.watermarkTemplateSnapshot.templateId, 'title-only');
+  assert.deepEqual(await service.startRecord(), ok({}));
+  const blockedWatermark = await service.setWatermark({
+    ...partialTemplate,
+    templateId: 'next',
+  });
+  assert.equal(blockedWatermark.success, false);
+  assert.equal(blockedWatermark.errorCode, '1403');
+  const blockedCamera = await service.switchCamera('front');
+  assert.equal(blockedCamera.success, false);
+  assert.equal(blockedCamera.errorCode, '1403');
+  const videoResult = await service.stopRecord();
+  assert.equal(videoResult.success, true);
+  assert.equal(videoResult.data.tempFilePath, '/tmp/video.mp4');
+  assert.deepEqual(nativeCalls.map(([name]) => name), [
+    'mountCamera',
+    'setWatermark',
+    'takePhoto',
+    'startRecord',
+    'stopRecord',
+  ]);
+  assert.equal(events.some(([name]) => name === 'recordStart'), true);
+  assert.equal(events.some(([name]) => name === 'recordDone'), true);
+});
+
+test('UTS interface exposes the PRD facade contract and keeps legacy recorder types for migration', async () => {
   const interfaceText = await readFile(
     path.join(root, 'uni_modules/uts-markvideo/utssdk/interface.uts'),
     'utf8',
   );
-  const androidBridge = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/index.uts'),
-    'utf8',
-  );
-  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
 
+  assert.match(interfaceText, /EmbeddedCameraResult/);
+  assert.match(interfaceText, /EmbeddedCameraMountOptions/);
+  assert.match(interfaceText, /WatermarkTemplate/);
+  assert.match(interfaceText, /MountCamera/);
+  assert.match(interfaceText, /SetWatermark/);
+  assert.match(interfaceText, /ClearWatermark/);
+  assert.match(interfaceText, /GetWatermarkPosition/);
+  assert.match(interfaceText, /TakePhoto/);
+  assert.match(interfaceText, /StartRecord/);
+  assert.match(interfaceText, /StopRecord/);
+  assert.match(interfaceText, /SwitchFlash/);
+  assert.match(interfaceText, /SetZoom/);
+  assert.match(interfaceText, /SwitchCamera/);
+  assert.match(interfaceText, /DestroyCamera/);
   assert.match(interfaceText, /RecordWatermarkVideo/);
-  assert.match(androidBridge, /recordWatermarkVideo/);
-  assert.match(page, /recordWatermarkVideo/);
 });
 
-test('Android manifest registers the native camera activity', async () => {
-  const manifest = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/AndroidManifest.xml'),
-    'utf8',
-  );
-
-  assert.match(manifest, /MarkVideoCameraActivity/);
-});
-
-test('Android camera MVP records microphone audio into the MP4', async () => {
-  const activity = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
-    'utf8',
-  );
-
-  assert.match(activity, /AudioRecord/);
-  assert.match(activity, /MIMETYPE_AUDIO_AAC/);
-  assert.match(activity, /audio\/mp4a-latm/);
-});
-
-test('Android recorder YUV conversion does not depend on an outer clamp helper', async () => {
-  const activity = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
-    'utf8',
-  );
-  const recorderStart = activity.indexOf('private class CameraMp4Recorder');
-  const companionStart = activity.indexOf('private companion object', recorderStart);
-
-  assert.notEqual(recorderStart, -1, 'CameraMp4Recorder body should be present');
-  assert.notEqual(companionStart, -1, 'CameraMp4Recorder should end before companion object');
-  const recorderBody = activity.slice(recorderStart, companionStart);
-  assert.doesNotMatch(recorderBody, /val [yuv] = clamp\(/);
-  assert.match(recorderBody, /val y = min\(255, max\(0,/);
-  assert.match(recorderBody, /val u = min\(255, max\(0,/);
-  assert.match(recorderBody, /val v = min\(255, max\(0,/);
-});
-
-test('Android camera preview does not CPU-convert frames while idle', async () => {
-  const activity = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
-    'utf8',
-  );
-
-  assert.match(activity, /import android\.view\.TextureView/);
-  assert.match(activity, /CameraDevice\.TEMPLATE_RECORD[\s\S]*addTarget\(activePreviewSurface\)[\s\S]*addTarget\(reader\.surface\)/);
-  assert.match(activity, /if \(!recording\) \{[\s\S]*return[\s\S]*if \(!shouldEncodeFrame/);
-  assert.doesNotMatch(activity, /setImageBitmap/);
-});
-
-test('Android recorder reuses frame buffers during encoding', async () => {
-  const activity = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
-    'utf8',
-  );
-  const recorderStart = activity.indexOf('private class CameraMp4Recorder');
-  const companionStart = activity.indexOf('private companion object', recorderStart);
-
-  assert.notEqual(recorderStart, -1, 'CameraMp4Recorder body should be present');
-  assert.notEqual(companionStart, -1, 'CameraMp4Recorder should end before companion object');
-  const recorderBody = activity.slice(recorderStart, companionStart);
-  assert.match(recorderBody, /private val pixelBuffer = IntArray\(frameSize\)/);
-  assert.match(recorderBody, /private val yuvBuffer = ByteArray\(frameSize \+ quarterFrameSize \* 2\)/);
-  assert.doesNotMatch(recorderBody, /val pixels = IntArray\(frameSize\)/);
-  assert.doesNotMatch(recorderBody, /val yuv = ByteArray\(frameSize \+ quarterFrameSize \* 2\)/);
-});
-
-test('Android camera recorder samples frames at the requested fps', async () => {
-  const activity = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
-    'utf8',
-  );
-
-  assert.match(activity, /private val frameIntervalNs: Long by lazy \{ 1_000_000_000L \/ targetFps \}/);
-  assert.match(activity, /private var lastEncodedFrameNs = 0L/);
-  assert.match(activity, /if \(!shouldEncodeFrame\(System\.nanoTime\(\)\)\) \{[\s\S]*return[\s\S]*val bitmap = drawWatermark/);
-  assert.match(activity, /private fun shouldEncodeFrame\(nowNs: Long\): Boolean/);
-});
-
-test('Android frame conversion runs off the camera callback thread', async () => {
-  const activity = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
-    'utf8',
-  );
-
-  assert.match(activity, /private var processingThread: HandlerThread\? = null/);
-  assert.match(activity, /private var processingHandler: Handler\? = null/);
-  assert.match(activity, /HandlerThread\("uts-markvideo-processing"\)/);
-  assert.match(activity, /setOnImageAvailableListener\(\{ reader ->[\s\S]*handleNextImage\(reader\)[\s\S]*\}, frameHandler\)/);
-});
-
-test('Android recorder operations are serialized on a dedicated recorder thread', async () => {
-  const activity = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt'),
-    'utf8',
-  );
-
-  assert.match(activity, /private var recorderThread: HandlerThread\? = null/);
-  assert.match(activity, /private var recorderHandler: Handler\? = null/);
-  assert.match(activity, /HandlerThread\("uts-markvideo-recorder"\)/);
-  assert.match(activity, /private fun startRecorderThread\(\)/);
-  assert.match(activity, /private fun stopRecorderThread\(\)/);
-  assert.match(activity, /val handler = recorderHandler[\s\S]*handler\.post \{[\s\S]*nextRecorder\.start\(\)[\s\S]*recording = true[\s\S]*\}/);
-  assert.match(activity, /val handler = recorderHandler[\s\S]*handler\.post \{[\s\S]*activeRecorder\.encodeFrame\(bitmap\)[\s\S]*bitmap\.recycle\(\)[\s\S]*\}/);
-  assert.match(activity, /val handler = recorderHandler[\s\S]*handler\.post \{[\s\S]*activeRecorder\?\.finish\(\)[\s\S]*\}/);
-});
-
-test('iOS MVP uses AVFoundation for camera, audio, watermark, and writing', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
+test('iOS module API keeps legacy migration entry without fake embedded media methods', async () => {
   const iosBridge = await readFile(
     path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.uts'),
     'utf8',
   );
 
+  for (const method of [
+    'mountCamera',
+    'setWatermark',
+    'clearWatermark',
+    'getWatermarkPosition',
+    'takePhoto',
+    'startRecord',
+    'stopRecord',
+    'switchFlash',
+    'setZoom',
+    'switchCamera',
+    'destroyCamera',
+  ]) {
+    assert.doesNotMatch(iosBridge, new RegExp(`export const ${method}`));
+  }
+
+  assert.match(iosBridge, /export const recordWatermarkVideo/);
+  assert.match(iosBridge, /MarkVideoRecorder\.openCameraRecorder/);
+  assert.doesNotMatch(iosBridge, /pipeline is not bound/);
+});
+
+test('iOS native component entry owns the PRD method surface', async () => {
+  const component = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.vue'),
+    'utf8',
+  );
+
+  assert.match(component, /name: 'uts-markvideo-camera'/);
+  assert.match(component, /NVLoad\(\): UIView/);
+  assert.match(component, /MarkVideoEmbeddedCameraView/);
+  assert.match(component, /view\.setEventHandlers/);
+  for (const eventName of [
+    'photodone',
+    'recordstart',
+    'recorddone',
+    'flashchange',
+    'zoomchange',
+    'camerafacingchange',
+    'cameraready',
+  ]) {
+    assert.match(component, new RegExp(`'${eventName}'`));
+  }
+  assert.match(component, /expose: \[/);
+  for (const method of [
+    'mountCamera',
+    'setWatermark',
+    'clearWatermark',
+    'getWatermarkPosition',
+    'takePhoto',
+    'startRecord',
+    'stopRecord',
+    'switchFlash',
+    'setZoom',
+    'switchCamera',
+    'destroyCamera',
+  ]) {
+    assert.match(component, new RegExp(`${method}`));
+  }
+  assert.match(component, /__\$\$emit\('watermarkpositionchange'/);
+  assert.match(component, /view\.takePhoto\(stringify\(_options\)\)/);
+  assert.match(component, /view\.startRecord\(stringify\(_options\)\)/);
+  assert.match(component, /view\.stopRecord\(\)/);
+  assert.match(component, /if \(!result\.success\) \{[\s\S]*result\.errorCode == '1402'[\s\S]*this\.recording = false[\s\S]*this\.frozenTemplate = null[\s\S]*return result/);
+  assert.doesNotMatch(component, /Embedded iOS camera media pipeline is not bound/);
+  assert.doesNotMatch(component, /recordWatermarkVideo/);
+});
+
+test('iOS embedded native view implements PRD preview, media, watermark, and events', async () => {
+  const nativeView = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoEmbeddedCameraView.swift'),
+    'utf8',
+  );
+
+  assert.match(nativeView, /public final class MarkVideoEmbeddedCameraView: UIView/);
+  assert.match(nativeView, /AVCaptureSession/);
+  assert.match(nativeView, /AVCaptureVideoPreviewLayer/);
+  assert.match(nativeView, /AVCaptureVideoDataOutput/);
+  assert.match(nativeView, /AVCaptureAudioDataOutput/);
+  assert.match(nativeView, /AVAssetWriter/);
+  assert.match(nativeView, /public func mountCamera/);
+  assert.match(nativeView, /public func takePhoto\(_ optionsJSON: String\) -> String/);
+  assert.match(nativeView, /public func startRecord\(_ optionsJSON: String\) -> String/);
+  assert.match(nativeView, /public func stopRecord\(\) -> String/);
+  assert.match(nativeView, /private static let captureQueueKey = DispatchSpecificKey<Bool>\(\)/);
+  assert.match(nativeView, /private func runOnCaptureQueueSync<T>\(_ block: \(\) -> T\) -> T/);
+  assert.match(nativeView, /let started = runOnCaptureQueueSync \{[\s\S]*session\.startRunning\(\)[\s\S]*session\.isRunning/);
+  assert.match(nativeView, /private func configureCameraSessionOnCaptureQueue\(facing: String, zoom requestedZoom: String\) -> NativeStatus/);
+  assert.match(nativeView, /runOnCaptureQueueSync \{[\s\S]*session\.stopRunning\(\)[\s\S]*session\.beginConfiguration\(\)/);
+  assert.doesNotMatch(nativeView, /AVCaptureDevice\.default\(\.builtInWideAngleCamera, for: \.video, position: position\) \?\?[\s\S]*AVCaptureDevice\.default\(for: \.video\)/);
+  assert.match(nativeView, /frozenTemplate = outputTemplate/);
+  assert.match(nativeView, /makeWatermarkedImage/);
+  assert.match(nativeView, /saveImageToGallerySynchronously/);
+  assert.match(nativeView, /saveVideoToGallerySynchronously/);
+  assert.match(nativeView, /emitNativeError\("1501"/);
+  assert.match(nativeView, /requestAudioAccessSynchronously/);
+  assert.match(nativeView, /return fail\("1002"/);
+  assert.match(nativeView, /return fail\("1403"/);
+  assert.match(nativeView, /EmbeddedWatermarkTemplate\.parse/);
+  assert.doesNotMatch(nativeView, /openCameraRecorder/);
+});
+
+test('iOS legacy native recorder remains available behind the adapter', async () => {
+  const iosBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.uts'),
+    'utf8',
+  );
+  const swift = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
+    'utf8',
+  );
+
+  assert.match(iosBridge, /export const recordWatermarkVideo/);
+  assert.match(iosBridge, /MarkVideoRecorder\.openCameraRecorder/);
+  assert.match(swift, /openCameraRecorder/);
   assert.match(swift, /AVCaptureSession/);
   assert.match(swift, /AVCaptureAudioDataOutput/);
   assert.match(swift, /AVAssetWriter/);
-  assert.match(swift, /watermark/);
-  assert.doesNotMatch(iosBridge, /not implemented/i);
+  assert.match(swift, /import Photos/);
+  assert.match(swift, /private func savePhotoToGallery/);
+  assert.match(swift, /@objc private func takePhoto\(\)/);
+  assert.match(swift, /@objc private func startRecording\(\)/);
 });
 
-test('iOS recorder stays compatible with older deployment targets', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /if #available\(iOS 10\.0, \*\)/);
-  assert.match(swift, /NSTemporaryDirectory\(\)/);
-  assert.match(swift, /AVVideoCodecH264/);
-  assert.doesNotMatch(swift, /FileManager\.default\.temporaryDirectory/);
-  assert.doesNotMatch(swift, /AVVideoCodecType\.h264/);
-});
-
-test('iOS watermark rendering is upright and not mirrored', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /automaticallyAdjustsVideoMirroring = false/);
-  assert.match(swift, /isVideoMirrored = false/);
-  assert.match(swift, /context\.translateBy\(x: 0, y: CGFloat\(height\)\)/);
-  assert.match(swift, /context\.scaleBy\(x: 1, y: -1\)/);
-});
-
-test('iOS camera recorder samples frames at the requested fps', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /private var frameInterval: CMTime/);
-  assert.match(swift, /private var lastEncodedFrameTime: CMTime\?/);
-  assert.match(swift, /private func shouldEncodeFrame\(at timestamp: CMTime\) -> Bool/);
-  assert.match(swift, /guard shouldEncodeFrame\(at: timestamp\) else \{ return \}/);
-});
-
-test('iOS recorder validates frame output and cleans temporary files', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /private var videoFrameCount = 0/);
-  assert.match(swift, /guard videoFrameCount > 0 else/);
-  assert.match(swift, /private func failNoFrames\(outputURL: URL\)/);
-  assert.match(swift, /private func failWriter\(outputURL: URL, message: String\)/);
-  assert.match(swift, /guard writer\.status == \.completed else/);
-  assert.match(swift, /private func finishWithError\(_ message: String\)/);
-  assert.match(swift, /No frames were recorded\./);
-  assert.match(swift, /try\? FileManager\.default\.removeItem\(at: outputURL\)/);
-});
-
-test('iOS recorder operations stay serialized on the writer queue', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /private let writerQueue = DispatchQueue\(label: "uts\.markvideo\.writer"\)/);
-  assert.match(swift, /writerQueue\.async \{[\s\S]*try self\.prepareWriter\(\)[\s\S]*self\.recording = true[\s\S]*\}/);
-  assert.match(swift, /writerQueue\.async \{[\s\S]*self\.recording = false[\s\S]*writer\.finishWriting/);
-  assert.match(swift, /func captureOutput[\s\S]*guard recording else \{ return \}/);
-});
-
-test('iOS recorder rejects duplicate start taps before preparing a new writer', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /@objc private func startRecording\(\) \{[\s\S]*startButton\.isEnabled = false[\s\S]*writerQueue\.async/);
-  assert.match(swift, /guard !self\.recording && self\.assetWriter == nil else/);
-  assert.match(swift, /guard !self\.recording && self\.assetWriter == nil else[\s\S]*return[\s\S]*do \{[\s\S]*try self\.prepareWriter\(\)/);
-});
-
-test('iOS recorder reports writer preparation failures through the fail callback', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /catch \{[\s\S]*self\.recording = false[\s\S]*self\.resetWriter\(\)[\s\S]*self\.finishWithError\(error\.localizedDescription\)/);
-});
-
-test('iOS recorder fails immediately when required capture inputs or outputs cannot be added', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /guard session\.canAddInput\(videoInput\) else/);
-  assert.match(swift, /guard session\.canAddInput\(micInput\) else/);
-  assert.match(swift, /guard session\.canAddOutput\(videoOutput\) else/);
-  assert.match(swift, /guard session\.canAddOutput\(audioOutput\) else/);
-  assert.doesNotMatch(swift, /if session\.canAddInput\(videoInput\) \{/);
-  assert.doesNotMatch(swift, /if session\.canAddOutput\(audioOutput\) \{/);
-});
-
-test('iOS recorder rejects duplicate API calls without replacing callbacks', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(swift, /guard success == nil && failure == nil else \{[\s\S]*onFail\("Recorder is already running\."\)[\s\S]*return[\s\S]*\}[\s\S]*success = onSuccess[\s\S]*failure = onFail/);
-});
-
-test('iOS recorder duration only advances after a frame is appended', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  const appendSuccessBlock = /if adaptor\.append\(watermarkedBuffer, withPresentationTime: timestamp\) \{([\s\S]*?)\n        \}/.exec(swift)?.[1] ?? '';
-  assert.match(appendSuccessBlock, /lastVideoTime = timestamp/);
-  assert.match(appendSuccessBlock, /videoFrameCount \+= 1/);
-  assert.doesNotMatch(swift, /lastVideoTime = timestamp[\s\S]*guard writer\.status == \.writing/);
-});
-
-test('native app declares camera and microphone privacy strings', async () => {
+test('native app declares camera, microphone, and photo-library descriptions', async () => {
   const manifest = await readFile(path.join(root, 'manifest.json'), 'utf8');
   const iosPlist = await readFile(
     path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/Info.plist'),
@@ -312,250 +445,10 @@ test('native app declares camera and microphone privacy strings', async () => {
   assert.match(iosPlist, /NSMicrophoneUsageDescription/);
 });
 
-test('iOS recorder can optionally capture watermarked photos', async () => {
-  const interfaceText = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/interface.uts'),
-    'utf8',
-  );
-  const iosBridge = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.uts'),
-    'utf8',
-  );
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-  const manifest = await readFile(path.join(root, 'manifest.json'), 'utf8');
-  const iosPlist = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/Info.plist'),
-    'utf8',
-  );
-  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
-
-  assert.match(interfaceText, /enablePhoto\?: boolean/);
-  assert.match(interfaceText, /photoTempFilePaths\?: string\[\]/);
-  assert.match(interfaceText, /photoSavedFilePaths\?: string\[\]/);
-  assert.match(iosBridge, /const enablePhoto = options\.camera\?\.enablePhoto \?\? false/);
-  assert.match(iosBridge, /const photoTempFilePaths = decodePathList\(photoTempFilePathsText\)/);
-  assert.match(iosBridge, /const photoSavedFilePaths = decodePathList\(photoSavedFilePathsText\)/);
-  assert.match(iosBridge, /const isPhotoOnly = actualDurationMs == 0 && tempFilePath\.length > 0 && photoTempFilePaths\.length == 0/);
-  assert.match(iosBridge, /kind: isPhotoOnly \? 'photo' : 'recording'/);
-  assert.match(iosBridge, /savedFilePath: isPhotoOnly && photoSavedFilePaths\.length > 0 \? photoSavedFilePaths\[0\] : tempFilePath/);
-  assert.match(iosBridge, /photoTempFilePaths: isPhotoOnly \? \[\] : photoTempFilePaths/);
-  assert.match(iosBridge, /photoSavedFilePaths: isPhotoOnly \? \[\] : photoSavedFilePaths/);
-  assert.match(swift, /import Photos/);
-  assert.match(swift, /_ enablePhoto: Bool/);
-  assert.match(swift, /requestPermissions\(includeAudio: includeAudio\) \{ videoGranted, audioGranted in/);
-  assert.match(swift, /guard !includeAudio \|\| audioGranted \|\| enablePhoto else/);
-  assert.match(swift, /let effectiveIncludeAudio = includeAudio && audioGranted/);
-  assert.match(swift, /private var photoButton = UIButton\(type: \.system\)/);
-  assert.match(swift, /photoButton\.isEnabled = false/);
-  assert.match(swift, /_ onSuccess: @escaping \(String, NSNumber, NSNumber, NSNumber, String, String, String\) -> Void/);
-  assert.match(swift, /private func takePhoto\(\)/);
-  assert.match(swift, /guard !self\.recording && self\.assetWriter == nil else/);
-  assert.match(swift, /Camera preview is warming up/);
-  assert.match(swift, /self\.enablePhoto && self\.startButton\.isEnabled && !self\.completed/);
-  assert.match(swift, /private func savePhotoToGallery/);
-  assert.match(swift, /photoTempFilePaths/);
-  assert.match(swift, /photoSavedFilePaths/);
-  assert.match(swift, /private var photoSizes: \[CGSize\] = \[\]/);
-  assert.match(swift, /self\.photoSizes\.append\(image\.size\)/);
-  assert.match(swift, /private func latestPhotoResult\(\) -> \(tempPath: String, savedPath: String, size: CGSize\)\?/);
-  assert.match(swift, /path: photo\.tempPath,[\s\S]*durationMs: 0,[\s\S]*width: Int\(photo\.size\.width\),[\s\S]*height: Int\(photo\.size\.height\),[\s\S]*photoTempFilePaths: \[\],[\s\S]*photoSavedFilePaths: \[photo\.savedPath\]/);
-  assert.match(swift, /self\.stopButton\.isEnabled = false[\s\S]*self\.photoButton\.isEnabled = true/);
-  assert.match(manifest, /NSPhotoLibraryAddUsageDescription/);
-  assert.match(manifest, /NSPhotoLibraryUsageDescription/);
-  assert.match(iosPlist, /NSPhotoLibraryAddUsageDescription/);
-  assert.match(iosPlist, /NSPhotoLibraryUsageDescription/);
-  assert.match(page, /enablePhoto/);
-  assert.match(page, /enablePhoto: true/);
-  assert.match(page, /<switch :checked="enablePhoto" @change="onPhotoToggle" \/>/);
-  assert.match(page, /onPhotoToggle\(event\)[\s\S]*this\.enablePhoto = !!event\.detail\.value/);
-  assert.match(page, /camera:\s*\{[\s\S]*enablePhoto: this\.enablePhoto/);
-  assert.match(page, /Saved photos/);
-});
-
-test('Page resolves watermark logo assets before opening the native recorder', async () => {
-  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
-  const apiDoc = await readFile(path.join(root, 'docs/api.md'), 'utf8');
-  const prd = await readFile(path.join(root, 'docs/prd-watermark-camera-cross-platform.md'), 'utf8');
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  assert.match(apiDoc, /GET \/api\/watermark\/logo-assets/);
-  assert.match(apiDoc, /local image\s+path or readable URI prepared by the Page layer/);
-  assert.match(apiDoc, /imageUrl: 'https:\/\/example\.com\/assets\/company-logo\.png'/);
-  assert.match(apiDoc, /\/static\/watermark\/company-logo\.svg/);
-  assert.match(apiDoc, /watermark\.imagePath/);
-  assert.match(prd, /GET \/api\/watermark\/logo-assets/);
-  assert.match(prd, /Android 分支的契约/);
-  assert.match(prd, /logos\[\]\.imageUrl/);
-  assert.match(prd, /\/static\/watermark\/company-logo\.svg/);
-  assert.match(page, /const WATERMARK_LOGO_API = ''/);
-  assert.match(page, /const FALLBACK_LOGO_ASSETS = \[/);
-  assert.match(page, /imagePath: '\/static\/watermark\/company-logo\.svg'/);
-  assert.match(page, /watermarkImagePath: FALLBACK_LOGO_ASSETS\[0\]\.imagePath/);
-  assert.match(page, /mounted\(\) \{[\s\S]*this\.loadWatermarkLogoAssets\(\)/);
-  assert.match(page, /uni\.request\(\{[\s\S]*url: WATERMARK_LOGO_API/);
-  assert.match(page, /normalizeLogoAssets\(res\.data\)/);
-  assert.match(page, /const imagePath = `\$\{item\.imagePath \|\| item\.localPath \|\| ''\}`/);
-  assert.match(page, /if \(logo\.imagePath\) \{[\s\S]*this\.watermarkImagePath = logo\.imagePath/);
-  assert.match(page, /uni\.downloadFile\(\{[\s\S]*url: logo\.imageUrl/);
-  assert.match(page, /this\.watermarkImagePath = res\.tempFilePath/);
-  assert.match(page, /uni\.chooseImage\(\{[\s\S]*this\.watermarkImagePath = imagePath/);
-  assert.match(page, /imagePath: this\.watermarkImagePath/);
-  assert.match(page, /imageWidth: this\.selectedLogoWidth/);
-  assert.match(page, /imageHeight: this\.selectedLogoHeight/);
-  assert.match(page, /<image[\s\S]*class="logoImage"[\s\S]*:src="logoPreviewPath"/);
-  assert.match(page, /class="watermarkPreviewText"/);
-  assert.match(swift, /let bundlePath = path\.hasPrefix\("\/"\) \? String\(path\.dropFirst\(\)\) : path/);
-  assert.match(swift, /UIImage\(named: bundlePath\)/);
-  assert.match(swift, /Bundle\.main\.path\(forResource: resourceName, ofType: resourceExtension\)/);
-});
-
-test('iOS recorder shows a blinking red recording indicator and elapsed timer', async () => {
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  const buildUIBody = /private func buildUI\(\) \{([\s\S]*?)\n    private func layoutWatermarkPreview/.exec(swift)?.[1] ?? '';
-  const startRecordingBody = /@objc private func startRecording\(\) \{([\s\S]*?)\n    @objc private func takePhoto/.exec(swift)?.[1] ?? '';
-  const appendSuccessBlock = /if adaptor\.append\(watermarkedBuffer, withPresentationTime: timestamp\) \{([\s\S]*?)\n        \}/.exec(swift)?.[1] ?? '';
-  const handleFinishedWritingBody = /private func handleFinishedWriting\(outputURL: URL, writer: AVAssetWriter\) \{([\s\S]*?)\n    private func finishRecordingOnWriterQueue/.exec(swift)?.[1] ?? '';
-
-  assert.match(swift, /private var recordingStatusView = UIView\(\)/);
-  assert.match(swift, /private var recordingDotView = UIView\(\)/);
-  assert.match(swift, /private var recordingTimeLabel = UILabel\(\)/);
-  assert.match(swift, /private var recordingTimer: Timer\?/);
-  assert.match(swift, /private func startRecordingIndicator\(\)/);
-  assert.match(swift, /private func stopRecordingIndicator\(\)/);
-  assert.match(swift, /guard Thread\.isMainThread else \{[\s\S]*DispatchQueue\.main\.async \{[\s\S]*self\.startRecordingIndicator\(\)/);
-  assert.match(swift, /guard Thread\.isMainThread else \{[\s\S]*DispatchQueue\.main\.async \{[\s\S]*self\.stopRecordingIndicator\(\)/);
-  assert.match(swift, /Timer\.scheduledTimer\(\s*timeInterval: 1\.0,[\s\S]*selector: #selector\(updateRecordingTimer\)/);
-  assert.match(swift, /@objc private func updateRecordingTimer\(\)/);
-  assert.doesNotMatch(swift, /Timer\.scheduledTimer\(withTimeInterval: 1\.0, repeats: true/);
-  assert.match(swift, /recordingTimeLabel\.text = Self\.formatRecordingTime\(elapsed: 0\)/);
-  assert.match(swift, /UIView\.animate\(\s*withDuration: 0\.8,[\s\S]*recordingDotView\.alpha = 0\.25/);
-  assert.match(buildUIBody, /view\.addSubview\(recordingStatusView\)/);
-  assert.match(buildUIBody, /let recordingStatusTopAnchor: NSLayoutYAxisAnchor/);
-  assert.match(buildUIBody, /recordingStatusTopAnchor = view\.safeAreaLayoutGuide\.topAnchor/);
-  assert.match(buildUIBody, /recordingStatusTopAnchor = topLayoutGuide\.bottomAnchor/);
-  assert.match(buildUIBody, /recordingStatusView\.topAnchor\.constraint\(equalTo: recordingStatusTopAnchor/);
-  assert.doesNotMatch(buildUIBody, /controlPanel\.addArrangedSubview\(recordingIndicatorRow\)/);
-  assert.doesNotMatch(startRecordingBody, /self\.startRecordingIndicator\(\)/);
-  assert.match(appendSuccessBlock, /if firstVideoTime == nil \{[\s\S]*DispatchQueue\.main\.async \{[\s\S]*self\.startRecordingIndicator\(\)/);
-  assert.doesNotMatch(handleFinishedWritingBody, /(?<!self\.)stopRecordingIndicator\(\)/);
-});
-
-test('iOS watermark preview supports whole-block drag and pinch zoom burned into output', async () => {
-  const interfaceText = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/interface.uts'),
-    'utf8',
-  );
-  const iosBridge = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.uts'),
-    'utf8',
-  );
-  const swift = await readFile(
-    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
-    'utf8',
-  );
-
-  const drawWatermarkBody = /private func drawWatermark\(into buffer: CVPixelBuffer\) \{([\s\S]*?)\n    override func viewDidDisappear/.exec(swift)?.[1] ?? '';
-  const layoutBody = /private func watermarkDrawLayout\(canvasSize: CGSize, state: WatermarkLayoutState\) -> WatermarkDrawLayout \{([\s\S]*?)\n    private func startRecordingIndicator/.exec(swift)?.[1] ?? '';
-
-  assert.match(interfaceText, /imagePath\?: string/);
-  assert.match(interfaceText, /textColor\?: string/);
-  assert.match(interfaceText, /fontSize\?: number/);
-  assert.match(interfaceText, /imageWidth\?: number/);
-  assert.match(interfaceText, /backgroundColor\?: string/);
-  assert.match(iosBridge, /const imagePath = options\.watermark\?\.imagePath \?\? ''/);
-  assert.match(iosBridge, /const textColor = options\.watermark\?\.textColor \?\? '#FFFFFF'/);
-  assert.match(iosBridge, /const imageWidth = options\.watermark\?\.imageWidth \?\? 0/);
-  assert.match(iosBridge, /const imageHeight = options\.watermark\?\.imageHeight \?\? 0/);
-  assert.match(iosBridge, /const backgroundColor = options\.watermark\?\.backgroundColor \?\? '#00000099'/);
-  assert.match(iosBridge, /imagePath,[\s\S]*watermarkX,[\s\S]*watermarkY,[\s\S]*textColor,[\s\S]*fontSize,[\s\S]*textBold,[\s\S]*imageWidth,[\s\S]*imageHeight/);
-  assert.match(swift, /private struct WatermarkRenderOptions/);
-  assert.match(swift, /let imagePath: String/);
-  assert.match(swift, /private var watermarkImageView = UIImageView\(\)/);
-  assert.match(swift, /private var watermarkImage: UIImage\?/);
-  assert.match(swift, /watermarkImage = loadWatermarkImage\(from: watermarkOptions\.imagePath\)/);
-  assert.match(swift, /private func loadWatermarkImage\(from rawPath: String\) -> UIImage\?/);
-  assert.match(swift, /UIImage\(contentsOfFile:/);
-  assert.match(swift, /watermarkImageView\.image = watermarkImage/);
-  assert.match(swift, /watermarkContainer\.addSubview\(watermarkImageView\)/);
-  assert.match(swift, /UIGestureRecognizerDelegate/);
-  assert.match(swift, /private var watermarkContainer = UIView\(\)/);
-  assert.match(swift, /private var watermarkLabelLeadingConstraint: NSLayoutConstraint\?/);
-  assert.match(swift, /watermarkLabel\.numberOfLines = 0/);
-  assert.match(swift, /watermarkLabel\.lineBreakMode = \.byCharWrapping/);
-  assert.match(swift, /private let watermarkStateLock = NSLock\(\)/);
-  assert.match(swift, /private var watermarkCenterRatio = CGPoint\(x: 0\.5, y: 0\.78\)/);
-  assert.match(swift, /private var watermarkScale: CGFloat = 1/);
-  assert.match(swift, /UILongPressGestureRecognizer\(target: self, action: #selector\(handleWatermarkLongPress\(_:?\)\)\)/);
-  assert.match(swift, /UIPinchGestureRecognizer\(target: self, action: #selector\(handleWatermarkPinch\(_:?\)\)\)/);
-  assert.match(swift, /shouldRecognizeSimultaneouslyWith otherGestureRecognizer/);
-  assert.match(swift, /private func updateWatermarkLayout\(center: CGPoint, scale: CGFloat\)/);
-  assert.match(swift, /private func storeWatermarkLayout\(center: CGPoint, canvasSize: CGSize, scale: CGFloat\)/);
-  assert.match(swift, /watermarkStateLock\.lock\(\)[\s\S]*watermarkCenterRatio = nextRatio[\s\S]*watermarkScale = scale[\s\S]*watermarkStateLock\.unlock\(\)/);
-  assert.match(swift, /let clampedCenter = clampedWatermarkPreviewCenter\(targetCenter, size: size\)[\s\S]*storeWatermarkLayout\(center: clampedCenter, canvasSize: view\.bounds\.size, scale: state\.scale\)/);
-  assert.match(drawWatermarkBody, /let state = currentWatermarkLayoutState\(\)/);
-  assert.match(drawWatermarkBody, /watermarkDrawLayout\(/);
-  assert.match(drawWatermarkBody, /state: state/);
-  assert.match(swift, /private func watermarkBoxSize\(canvasSize: CGSize, scale: CGFloat\) -> CGSize/);
-  assert.match(swift, /self\.imageWidth = CGFloat\(imageWidth > 0 \? imageWidth : 0\)/);
-  assert.match(swift, /self\.imageHeight = CGFloat\(imageHeight > 0 \? imageHeight : 0\)/);
-  assert.match(swift, /let imageAspectRatio = max\(0\.01,/);
-  assert.match(swift, /else if optionWidth > 0 \{[\s\S]*requestedHeight = optionWidth \/ imageAspectRatio/);
-  assert.match(swift, /else if optionHeight > 0 \{[\s\S]*requestedWidth = optionHeight \* imageAspectRatio/);
-  assert.match(swift, /private func measuredWatermarkTextHeight\(maxWidth: CGFloat, font: UIFont\) -> CGFloat/);
-  assert.match(swift, /private func clampedWatermarkCenter\([\s\S]*canvasSize: CGSize,[\s\S]*topInset: CGFloat,[\s\S]*bottomInset: CGFloat,[\s\S]*margin: CGFloat/);
-  assert.match(layoutBody, /let clampedCenter = clampedWatermarkCenter\([\s\S]*canvasSize: canvasSize,[\s\S]*topInset: 0,[\s\S]*bottomInset: 0,[\s\S]*margin: 0/);
-  assert.match(swift, /let contentHeight = padding \* 2 \+ imageSize\.height \+ gap \+ textHeight/);
-  assert.match(swift, /height: max\(1, ceil\(max\(baseHeight, contentHeight\)\)\)/);
-  assert.match(swift, /private func watermarkPreviewLayout\(size: CGSize, scale: CGFloat\) -> WatermarkDrawLayout/);
-  assert.match(swift, /private func watermarkContentLayout\(rect: CGRect, scale: CGFloat\) -> WatermarkDrawLayout/);
-  assert.match(swift, /let previewLayout = watermarkPreviewLayout\(size: size, scale: state\.scale\)/);
-  assert.doesNotMatch(swift, /watermarkDrawLayout\(\s*canvasSize: size,[\s\S]*WatermarkLayoutState\(centerRatio: CGPoint\(x: 0\.5, y: 0\.5\), scale: 1\)/);
-  assert.match(layoutBody, /canvasSize\.width \* state\.centerRatio\.x/);
-  assert.match(layoutBody, /canvasSize\.height \* state\.centerRatio\.y/);
-  assert.match(layoutBody, /state\.scale/);
-  assert.match(drawWatermarkBody, /watermarkOptions\.backgroundColor\.cgColor/);
-  assert.match(drawWatermarkBody, /UIBezierPath\(\s*roundedRect: layout\.rect/);
-  assert.match(drawWatermarkBody, /if let imageRect = layout\.imageRect, let cgImage = watermarkImage\?\.cgImage/);
-  assert.match(drawWatermarkBody, /context\.draw\(cgImage, in: imageRect\)/);
-  assert.match(drawWatermarkBody, /watermarkOptions\.textBold/);
-  assert.match(drawWatermarkBody, /watermarkOptions\.textColor/);
-  assert.match(drawWatermarkBody, /\.byCharWrapping/);
-  assert.match(drawWatermarkBody, /NSAttributedString\(string: watermark, attributes: attributes\)\.draw\([\s\S]*\.usesLineFragmentOrigin/);
-  assert.doesNotMatch(layoutBody, /boxHeight \* 0\.46/);
-  assert.doesNotMatch(drawWatermarkBody, /byTruncatingTail/);
-});
-
 test('Vue 3 app entry is declared in manifest', async () => {
   const main = await readFile(path.join(root, 'main.js'), 'utf8');
   const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
 
   assert.match(main, /createSSRApp/);
   assert.equal(manifest.vueVersion, '3');
-});
-
-test('GitHub Actions workflow can request Android or iOS cloud packages', async () => {
-  const workflow = await readFile(
-    path.join(root, '.github/workflows/cloud-package.yml'),
-    'utf8',
-  );
-
-  assert.match(workflow, /workflow_dispatch/);
-  assert.match(workflow, /DCLOUD_USERNAME/);
-  assert.match(workflow, /DCLOUD_PASSWORD/);
-  assert.match(workflow, /HBuilderX/);
-  assert.match(workflow, /cli.*pack/s);
-  assert.match(workflow, /platform/);
-  assert.match(workflow, /android/);
-  assert.match(workflow, /ios/);
-  assert.match(workflow, /actions\/upload-artifact/);
 });

@@ -7,6 +7,13 @@
         "navigationBarBackgroundColor": "#f6f7f9",
         "navigationBarTextStyle": "black"
       }
+    },
+    {
+      "path": "pages/camera/camera",
+      "style": {
+        "navigationBarTitleText": "内嵌水印相机",
+        "navigationStyle": "custom"
+      }
     }
   ],
   "globalStyle": {
