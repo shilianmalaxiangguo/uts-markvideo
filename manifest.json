@@ -18,7 +18,9 @@
       "ios": {
         "privacyDescription": {
           "NSCameraUsageDescription": "用于录制带水印的视频画面",
-          "NSMicrophoneUsageDescription": "用于录制视频中的声音"
+          "NSMicrophoneUsageDescription": "用于录制视频中的声音",
+          "NSPhotoLibraryAddUsageDescription": "用于保存带水印的照片到相册",
+          "NSPhotoLibraryUsageDescription": "用于保存带水印的照片到相册"
         },
         "dSYMs": false
       }

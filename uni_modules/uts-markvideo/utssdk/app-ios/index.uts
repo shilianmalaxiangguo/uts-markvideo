@@ -8,15 +8,45 @@ import {
 } from '../interface.uts'
 
 export const recordWatermarkVideo : RecordWatermarkVideo = function (options : RecordWatermarkVideoOptions) {
-  const text = options.text ?? 'UTS 即拍即有水印'
-  const fps = options.fps ?? 15
+  const text = options.watermark?.text ?? options.text ?? 'UTS 即拍即有水印'
+  const fps = options.video?.fps ?? options.fps ?? 15
+  const width = options.video?.width ?? 0
+  const height = options.video?.height ?? 0
+  const bitrate = options.video?.bitrate ?? 0
+  const includeAudio = options.video?.includeAudio ?? true
+  const facing = options.camera?.facing ?? 'back'
+  const enablePhoto = options.camera?.enablePhoto ?? false
+  const maxDurationMs = options.limits?.maxDurationMs ?? 0
+  const minDurationMs = options.limits?.minDurationMs ?? 0
+  const perfLogging = options.diagnostics?.perfLogging ?? false
 
   MarkVideoRecorder.openCameraRecorder(
     text,
     fps,
-    (tempFilePath: string, actualDurationMs: number, actualWidth: number, actualHeight: number, watermarkText: string) => {
+    width,
+    height,
+    bitrate,
+    includeAudio,
+    facing,
+    enablePhoto,
+    maxDurationMs,
+    minDurationMs,
+    perfLogging,
+    (
+      tempFilePath: string,
+      actualDurationMs: number,
+      actualWidth: number,
+      actualHeight: number,
+      watermarkText: string,
+      photoTempFilePathsText: string,
+      photoSavedFilePathsText: string
+    ) => {
       const res: RecordWatermarkVideoSuccess = {
+        kind: photoSavedFilePathsText.length > 0 && tempFilePath.length == 0 ? 'photo' : 'recording',
         tempFilePath: tempFilePath,
+        savedFilePath: tempFilePath,
+        photoTempFilePaths: decodePathList(photoTempFilePathsText),
+        photoSavedFilePaths: decodePathList(photoSavedFilePathsText),
         durationMs: actualDurationMs,
         width: actualWidth,
         height: actualHeight,
@@ -34,6 +64,13 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
       options.complete?.(err)
     }
   )
+}
+
+function decodePathList(text: string): string[] {
+  if (text.length == 0) {
+    return []
+  }
+  return text.split('\n').filter((path: string) => path.length > 0)
 }
 
 export const createWatermarkSample : CreateWatermarkSample = function (options : CreateWatermarkSampleOptions) {

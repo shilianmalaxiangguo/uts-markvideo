@@ -311,6 +311,60 @@ test('native app declares camera and microphone privacy strings', async () => {
   assert.match(iosPlist, /NSMicrophoneUsageDescription/);
 });
 
+test('iOS recorder can optionally capture watermarked photos', async () => {
+  const interfaceText = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/interface.uts'),
+    'utf8',
+  );
+  const iosBridge = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/index.uts'),
+    'utf8',
+  );
+  const swift = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
+    'utf8',
+  );
+  const manifest = await readFile(path.join(root, 'manifest.json'), 'utf8');
+  const iosPlist = await readFile(
+    path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/Info.plist'),
+    'utf8',
+  );
+  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
+
+  assert.match(interfaceText, /enablePhoto\?: boolean/);
+  assert.match(interfaceText, /photoTempFilePaths\?: string\[\]/);
+  assert.match(interfaceText, /photoSavedFilePaths\?: string\[\]/);
+  assert.match(iosBridge, /const enablePhoto = options\.camera\?\.enablePhoto \?\? false/);
+  assert.match(iosBridge, /photoTempFilePaths: decodePathList\(photoTempFilePathsText\)/);
+  assert.match(iosBridge, /photoSavedFilePaths: decodePathList\(photoSavedFilePathsText\)/);
+  assert.match(swift, /import Photos/);
+  assert.match(swift, /_ enablePhoto: Bool/);
+  assert.match(swift, /requestPermissions\(includeAudio: includeAudio\) \{ videoGranted, audioGranted in/);
+  assert.match(swift, /guard !includeAudio \|\| audioGranted \|\| enablePhoto else/);
+  assert.match(swift, /let effectiveIncludeAudio = includeAudio && audioGranted/);
+  assert.match(swift, /private var photoButton = UIButton\(type: \.system\)/);
+  assert.match(swift, /photoButton\.isEnabled = false/);
+  assert.match(swift, /_ onSuccess: @escaping \(String, NSNumber, NSNumber, NSNumber, String, String, String\) -> Void/);
+  assert.match(swift, /private func takePhoto\(\)/);
+  assert.match(swift, /guard !self\.recording && self\.assetWriter == nil else/);
+  assert.match(swift, /Camera preview is warming up/);
+  assert.match(swift, /self\.enablePhoto && self\.startButton\.isEnabled && !self\.completed/);
+  assert.match(swift, /private func savePhotoToGallery/);
+  assert.match(swift, /photoTempFilePaths/);
+  assert.match(swift, /photoSavedFilePaths/);
+  assert.match(swift, /self\.stopButton\.isEnabled = false[\s\S]*self\.photoButton\.isEnabled = true/);
+  assert.match(manifest, /NSPhotoLibraryAddUsageDescription/);
+  assert.match(manifest, /NSPhotoLibraryUsageDescription/);
+  assert.match(iosPlist, /NSPhotoLibraryAddUsageDescription/);
+  assert.match(iosPlist, /NSPhotoLibraryUsageDescription/);
+  assert.match(page, /enablePhoto/);
+  assert.match(page, /enablePhoto: true/);
+  assert.match(page, /<switch :checked="enablePhoto" @change="onPhotoToggle" \/>/);
+  assert.match(page, /onPhotoToggle\(event\)[\s\S]*this\.enablePhoto = !!event\.detail\.value/);
+  assert.match(page, /camera:\s*\{[\s\S]*enablePhoto: this\.enablePhoto/);
+  assert.match(page, /Saved photos/);
+});
+
 test('Vue 3 app entry is declared in manifest', async () => {
   const main = await readFile(path.join(root, 'main.js'), 'utf8');
   const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));

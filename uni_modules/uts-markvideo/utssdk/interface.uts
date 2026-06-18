@@ -11,7 +11,11 @@ export type MarkVideoFail = {
 }
 
 export type RecordWatermarkVideoSuccess = {
+  kind?: 'recording' | 'photo'
   tempFilePath: string
+  savedFilePath?: string
+  photoTempFilePaths?: string[]
+  photoSavedFilePaths?: string[]
   durationMs: number
   width: number
   height: number
@@ -19,6 +23,11 @@ export type RecordWatermarkVideoSuccess = {
 }
 
 export type RecordWatermarkVideoOptions = {
+  watermark?: MarkVideoWatermarkOptions
+  video?: MarkVideoVideoOptions
+  camera?: MarkVideoCameraOptions
+  limits?: MarkVideoRecordLimits
+  diagnostics?: MarkVideoDiagnosticsOptions
   text?: string
   fps?: number
   success?: (res: RecordWatermarkVideoSuccess) => void
@@ -44,3 +53,45 @@ export type CreateWatermarkSampleOptions = {
 export type CreateWatermarkSample = (
   options: CreateWatermarkSampleOptions
 ) => void
+
+export type MarkVideoWatermarkOptions = {
+  text?: string
+  imagePath?: string
+  position?: string
+  x?: number
+  y?: number
+  textColor?: string
+  fontSize?: number
+  textBold?: boolean
+  imageWidth?: number
+  imageHeight?: number
+  imageGap?: number
+  boxWidth?: number
+  boxHeight?: number
+  backgroundColor?: string
+  borderRadius?: number
+  padding?: number
+}
+
+export type MarkVideoVideoOptions = {
+  width?: number
+  height?: number
+  fps?: number
+  bitrate?: number
+  includeAudio?: boolean
+}
+
+export type MarkVideoCameraOptions = {
+  facing?: string
+  previewFit?: string
+  enablePhoto?: boolean
+}
+
+export type MarkVideoRecordLimits = {
+  maxDurationMs?: number
+  minDurationMs?: number
+}
+
+export type MarkVideoDiagnosticsOptions = {
+  perfLogging?: boolean
+}

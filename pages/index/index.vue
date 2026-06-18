@@ -2,7 +2,7 @@
   <view class="page">
     <view class="panel">
       <text class="title">UTS MarkVideo MVP</text>
-      <text class="hint">Android native camera recorder</text>
+      <text class="hint">Native camera recorder</text>
 
       <input
         class="input"
@@ -10,6 +10,11 @@
         maxlength="40"
         placeholder="Watermark text"
       />
+
+      <label class="checkRow">
+        <switch :checked="enablePhoto" @change="onPhotoToggle" />
+        <text class="checkText">Photo</text>
+      </label>
 
       <button class="button" :disabled="busy" @click="openRecorder">
         {{ busy ? 'Waiting for recorder...' : 'Open camera recorder' }}
@@ -27,8 +32,19 @@
     />
 
     <view v-if="videoPath" class="pathBox">
-      <text class="pathLabel">File</text>
+      <text class="pathLabel">Video file</text>
       <text class="path">{{ videoPath }}</text>
+    </view>
+
+    <view v-if="photoSavedFilePaths.length > 0" class="pathBox">
+      <text class="pathLabel">Saved photos</text>
+      <text
+        v-for="path in photoSavedFilePaths"
+        :key="path"
+        class="path"
+      >
+        {{ path }}
+      </text>
     </view>
   </view>
 </template>
@@ -41,7 +57,9 @@ export default {
     return {
       busy: false,
       videoPath: '',
+      photoSavedFilePaths: [],
       watermarkText: 'UTS 即拍即有水印',
+      enablePhoto: true,
       status: 'Ready'
     }
   },
@@ -51,14 +69,32 @@ export default {
 
       this.busy = true
       this.videoPath = ''
-      this.status = 'Open native camera, then start and stop recording.'
+      this.photoSavedFilePaths = []
+      this.status = this.enablePhoto
+        ? 'Open native camera, then record or take photos.'
+        : 'Open native camera, then start and stop recording.'
 
       recordWatermarkVideo({
-        text: this.watermarkText,
-        fps: 15,
+        watermark: {
+          text: this.watermarkText
+        },
+        video: {
+          fps: 15
+        },
+        camera: {
+          enablePhoto: this.enablePhoto
+        },
         success: (res) => {
-          this.videoPath = res.tempFilePath
-          this.status = `Created ${res.width}x${res.height}, ${res.durationMs}ms. Play it to verify the burned-in watermark.`
+          const kind = res.kind || 'recording'
+          this.photoSavedFilePaths = this.normalizeStringArray(res.photoSavedFilePaths)
+          this.videoPath = kind === 'photo' ? '' : (res.savedFilePath || res.tempFilePath)
+          const photoCount = this.photoSavedFilePaths.length
+          const photoText = photoCount > 0 ? ` Photos ${photoCount}.` : ''
+          if (kind === 'photo') {
+            this.status = `Saved photos ${photoCount}.`
+          } else {
+            this.status = `Created ${res.width}x${res.height}, ${res.durationMs}ms.${photoText} Play it to verify the burned-in watermark.`
+          }
         },
         fail: (err) => {
           this.status = `${err.errCode}: ${err.errMsg}`
@@ -67,6 +103,28 @@ export default {
           this.busy = false
         }
       })
+    },
+    onPhotoToggle(event) {
+      this.enablePhoto = !!event.detail.value
+    },
+    normalizeStringArray(value) {
+      if (Array.isArray(value)) {
+        return value.map((item) => `${item}`).filter((item) => item.length > 0)
+      }
+      if (typeof value === 'string') {
+        return value.split('\n').map((item) => item.trim()).filter((item) => item.length > 0)
+      }
+      if (value && typeof value.length === 'number') {
+        const result = []
+        for (let index = 0; index < value.length; index += 1) {
+          const item = `${value[index]}`
+          if (item.length > 0) {
+            result.push(item)
+          }
+        }
+        return result
+      }
+      return []
     }
   }
 }
@@ -109,6 +167,18 @@ export default {
   background: #fbfcfd;
   color: #17212b;
   font-size: 15px;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.checkText {
+  margin-left: 6px;
+  color: #344252;
+  font-size: 14px;
 }
 
 .button {

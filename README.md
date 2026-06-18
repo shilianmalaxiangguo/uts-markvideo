@@ -32,7 +32,8 @@ replacing the frame path with a production OpenGL/CameraX/Metal pipeline.
    player. Play the MP4 and check that the watermark is burned into the video.
 
 iOS uses the same `recordWatermarkVideo` API and opens a native AVFoundation
-recorder.
+recorder. Enable `camera.enablePhoto` to show the native photo button; iOS saves
+watermarked photos to the system photo library and returns their identifiers.
 
 ## Important paths
 

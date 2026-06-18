@@ -26,7 +26,7 @@
     "declaration": {
       "ads": "无",
       "data": "插件不采集任何数据",
-      "permissions": "Android and iOS use camera and microphone permissions to record watermarked video with audio."
+      "permissions": "Android and iOS use camera and microphone permissions to record watermarked video with audio. iOS also requests photo-library add permission when saving watermarked photos."
     }
   },
   "uni_modules": {
