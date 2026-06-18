@@ -32,7 +32,8 @@ recordWatermarkVideo({
   },
   camera: {
     facing: 'back',
-    previewFit: 'cover'
+    previewFit: 'cover',
+    enablePhoto: false
   },
   limits: {
     maxDurationMs: 60000,
@@ -121,9 +122,13 @@ ratio and reports the actual output size in the success result.
 
 - `facing`: Preferred camera, `back` or `front`.
 - `previewFit`: Preview display fit, `cover` or `contain`.
+- `enablePhoto`: Android-only switch that shows a native photo button in the
+  recorder. When enabled, captured photos use the same watermark style and are
+  saved to the system gallery.
 
 `facing` is wired into the current native recorders. The current native previews
-use cover-style display.
+use cover-style display. `enablePhoto` is wired on Android; iOS currently
+ignores it.
 
 ### `limits`
 
@@ -144,6 +149,8 @@ The native stop button remains available for manual stop.
 {
   tempFilePath: string,
   savedFilePath?: string,
+  photoTempFilePaths?: string[],
+  photoSavedFilePaths?: string[],
   durationMs: number,
   width: number,
   height: number,
@@ -162,8 +169,10 @@ The native stop button remains available for manual stop.
 already contain the watermark. `savedFilePath` points to the system gallery copy
 when the platform publishes one. On Android, successful recordings are published
 to the system gallery under `Movies/uts-markvideo`, so gallery/video apps can
-find them. `durationMs`, `width`, and `height` describe the actual native output,
-not merely the requested options.
+find them. If `camera.enablePhoto` is true, Android also returns
+`photoTempFilePaths` and `photoSavedFilePaths`; gallery photos are published under
+`Pictures/uts-markvideo`. `durationMs`, `width`, and `height` describe the actual
+native output, not merely the requested options.
 
 On Android, `stats` reports frames observed during the recording window:
 
@@ -193,6 +202,7 @@ Stable recorder error codes:
 - `1006`: No video frames were recorded.
 - `1007`: Recording is shorter than `limits.minDurationMs`.
 - `1008`: Video encoder or supported YUV format is unavailable.
+- `1009`: Android photo capture or gallery publication failed.
 
 Debug helper error codes:
 
