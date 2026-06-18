@@ -147,6 +147,7 @@ The native stop button remains available for manual stop.
 
 ```ts
 {
+  kind?: 'recording' | 'photo',
   tempFilePath: string,
   savedFilePath?: string,
   photoTempFilePaths?: string[],
@@ -165,14 +166,16 @@ The native stop button remains available for manual stop.
 }
 ```
 
-`tempFilePath` points to the recorder's local MP4 file whose video frames should
-already contain the watermark. `savedFilePath` points to the system gallery copy
-when the platform publishes one. On Android, successful recordings are published
-to the system gallery under `Movies/uts-markvideo`, so gallery/video apps can
-find them. If `camera.enablePhoto` is true, Android also returns
-`photoTempFilePaths` and `photoSavedFilePaths`; gallery photos are published under
-`Pictures/uts-markvideo`. `durationMs`, `width`, and `height` describe the actual
-native output, not merely the requested options.
+`kind` tells the caller whether this success represents a normal recording or a
+photo-only return path. `tempFilePath` points to the recorder's local MP4 file
+whose video frames should already contain the watermark when `kind` is
+`recording`. `savedFilePath` points to the system gallery copy when the platform
+publishes one. On Android, successful recordings are published to the system
+gallery under `Movies/uts-markvideo`, so gallery/video apps can find them. If
+`camera.enablePhoto` is true, Android also returns `photoTempFilePaths` and
+`photoSavedFilePaths`; gallery photos are published under `Pictures/uts-markvideo`.
+`durationMs`, `width`, and `height` describe the actual native output, not merely
+the requested options.
 
 On Android, `stats` reports frames observed during the recording window:
 

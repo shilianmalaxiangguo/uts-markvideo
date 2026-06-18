@@ -214,9 +214,11 @@ export default {
       this.watermarkImagePath = ''
     },
     handleRecordSuccess(res) {
+      const kind = this.safeString(res.kind)
       const savedPath = this.safeString(res.savedFilePath)
       const tempPath = this.safeString(res.tempFilePath)
-      this.videoPath = savedPath || tempPath
+      const isPhotoOnly = kind === 'photo'
+      this.videoPath = isPhotoOnly ? '' : (savedPath || tempPath)
       this.savedFilePath = savedPath
       this.tempFilePath = tempPath
       this.photoSavedFilePaths = this.normalizeStringArray(res.photoSavedFilePaths)
@@ -224,10 +226,12 @@ export default {
       const statsText = this.formatStats(res.stats, res.durationMs)
       const photoText = photoCount > 0 ? ` Photos ${photoCount}.` : ''
 
-      if (this.videoPath) {
+      if (isPhotoOnly) {
+        this.status = `Saved photos ${photoCount}.`
+      } else if (this.videoPath) {
         this.status = `Saved ${this.safeNumber(res.width, 0)}x${this.safeNumber(res.height, 0)}, ${this.safeNumber(res.durationMs, 0)}ms to gallery.${photoText} ${statsText}`
       } else {
-        this.status = `Saved photos ${photoCount}.`
+        this.status = `Saved ${this.safeNumber(res.width, 0)}x${this.safeNumber(res.height, 0)}, ${this.safeNumber(res.durationMs, 0)}ms.${photoText} ${statsText}`
       }
     },
     handleRecordFail(err) {

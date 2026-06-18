@@ -262,6 +262,7 @@ test('recordWatermarkVideo result exposes gallery-saved video path', async () =>
   const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
 
   assert.match(interfaceText, /savedFilePath\?: string/);
+  assert.match(interfaceText, /kind\?: string/);
   assert.match(interfaceText, /photoTempFilePaths\?: string\[\]/);
   assert.match(interfaceText, /photoSavedFilePaths\?: string\[\]/);
   assert.match(api, /savedFilePath\?: string/);
@@ -278,7 +279,8 @@ test('recordWatermarkVideo result exposes gallery-saved video path', async () =>
   assert.match(activity, /Movies\/uts-markvideo/);
   assert.match(activity, /publishToGallery\(file\)/);
   assert.match(page, /const savedPath = this\.safeString\(res\.savedFilePath\)/);
-  assert.match(page, /this\.videoPath = savedPath \|\| tempPath/);
+  assert.match(page, /const kind = this\.safeString\(res\.kind\)/);
+  assert.match(page, /this\.videoPath = isPhotoOnly \? '' : \(savedPath \|\| tempPath\)/);
   assert.match(page, /savedFilePath/);
 });
 
@@ -302,6 +304,7 @@ test('Android success callback avoids UTSArray bridge signature mismatches', asy
   assert.match(androidBridge, /photoSavedFilePathsText: string/);
   assert.match(androidBridge, /function decodePathList\(text: string\): string\[\]/);
   assert.match(page, /handleRecordSuccess\(res \|\| \{\}\)/);
+  assert.match(page, /kind === 'photo'/);
   assert.match(page, /normalizeStringArray\(res\.photoSavedFilePaths\)/);
 });
 
@@ -337,6 +340,7 @@ test('Android recorder can optionally capture watermarked photos', async () => {
   assert.match(activity, /visibility = if \(enablePhoto\) View\.VISIBLE else View\.GONE/);
   assert.match(activity, /private fun takePhoto\(\)/);
   assert.match(activity, /previewView\.getBitmap\(photoSize\.width, photoSize\.height\)/);
+  assert.match(activity, /finishWithError\(\s*MarkVideoNative\.ERR_PHOTO_CAPTURE_FAILED,\s*"Photo capture failed\."/s);
   assert.match(activity, /drawWatermark\(snapshot\)/);
   assert.match(activity, /Bitmap\.CompressFormat\.JPEG/);
   assert.match(activity, /publishPhotoToGallery\(file\)/);

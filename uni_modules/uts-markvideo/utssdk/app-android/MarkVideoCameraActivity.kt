@@ -483,8 +483,10 @@ class MarkVideoCameraActivity : Activity() {
 
         val snapshot = previewView.getBitmap(photoSize.width, photoSize.height)
         if (snapshot == null) {
-            photoButton.isEnabled = true
-            statusView.text = "Photo capture failed."
+            finishWithError(
+                MarkVideoNative.ERR_PHOTO_CAPTURE_FAILED,
+                "Photo capture failed."
+            )
             return
         }
 
@@ -510,16 +512,20 @@ class MarkVideoCameraActivity : Activity() {
             } catch (throwable: Throwable) {
                 file.delete()
                 runOnUiThread {
-                    photoButton.isEnabled = true
-                    statusView.text = throwable.message ?: "Photo capture failed."
+                    finishWithError(
+                        MarkVideoNative.ERR_PHOTO_CAPTURE_FAILED,
+                        throwable.message ?: "Photo capture failed."
+                    )
                 }
             } finally {
                 snapshot.recycle()
             }
         } ?: run {
             snapshot.recycle()
-            photoButton.isEnabled = true
-            statusView.text = "Camera thread is not running."
+            finishWithError(
+                MarkVideoNative.ERR_PHOTO_CAPTURE_FAILED,
+                "Camera thread is not running."
+            )
         }
     }
 

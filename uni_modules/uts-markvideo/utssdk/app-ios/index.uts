@@ -32,6 +32,7 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
     perfLogging,
     (tempFilePath: string, actualDurationMs: number, actualWidth: number, actualHeight: number, watermarkText: string) => {
       const res: RecordWatermarkVideoSuccess = {
+        kind: 'recording',
         tempFilePath: tempFilePath,
         savedFilePath: tempFilePath,
         photoTempFilePaths: [],

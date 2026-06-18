@@ -74,6 +74,7 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
       framesEncoded: number
     ) => {
       const res: RecordWatermarkVideoSuccess = {
+        kind: photoSavedFilePathsText.length > 0 && tempFilePath.length == 0 ? 'photo' : 'recording',
         tempFilePath: tempFilePath,
         savedFilePath: savedFilePath,
         photoTempFilePaths: decodePathList(photoTempFilePathsText),

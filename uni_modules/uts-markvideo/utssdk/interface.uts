@@ -63,6 +63,7 @@ export type MarkVideoFrameStats = {
 }
 
 export type RecordWatermarkVideoSuccess = {
+  kind?: string
   tempFilePath: string
   savedFilePath?: string
   photoTempFilePaths?: string[]
