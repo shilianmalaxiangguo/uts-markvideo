@@ -335,8 +335,13 @@ test('iOS recorder can optionally capture watermarked photos', async () => {
   assert.match(interfaceText, /photoTempFilePaths\?: string\[\]/);
   assert.match(interfaceText, /photoSavedFilePaths\?: string\[\]/);
   assert.match(iosBridge, /const enablePhoto = options\.camera\?\.enablePhoto \?\? false/);
-  assert.match(iosBridge, /photoTempFilePaths: decodePathList\(photoTempFilePathsText\)/);
-  assert.match(iosBridge, /photoSavedFilePaths: decodePathList\(photoSavedFilePathsText\)/);
+  assert.match(iosBridge, /const photoTempFilePaths = decodePathList\(photoTempFilePathsText\)/);
+  assert.match(iosBridge, /const photoSavedFilePaths = decodePathList\(photoSavedFilePathsText\)/);
+  assert.match(iosBridge, /const isPhotoOnly = actualDurationMs == 0 && tempFilePath\.length > 0 && photoTempFilePaths\.length == 0/);
+  assert.match(iosBridge, /kind: isPhotoOnly \? 'photo' : 'recording'/);
+  assert.match(iosBridge, /savedFilePath: isPhotoOnly && photoSavedFilePaths\.length > 0 \? photoSavedFilePaths\[0\] : tempFilePath/);
+  assert.match(iosBridge, /photoTempFilePaths: isPhotoOnly \? \[\] : photoTempFilePaths/);
+  assert.match(iosBridge, /photoSavedFilePaths: isPhotoOnly \? \[\] : photoSavedFilePaths/);
   assert.match(swift, /import Photos/);
   assert.match(swift, /_ enablePhoto: Bool/);
   assert.match(swift, /requestPermissions\(includeAudio: includeAudio\) \{ videoGranted, audioGranted in/);
@@ -352,6 +357,10 @@ test('iOS recorder can optionally capture watermarked photos', async () => {
   assert.match(swift, /private func savePhotoToGallery/);
   assert.match(swift, /photoTempFilePaths/);
   assert.match(swift, /photoSavedFilePaths/);
+  assert.match(swift, /private var photoSizes: \[CGSize\] = \[\]/);
+  assert.match(swift, /self\.photoSizes\.append\(image\.size\)/);
+  assert.match(swift, /private func latestPhotoResult\(\) -> \(tempPath: String, savedPath: String, size: CGSize\)\?/);
+  assert.match(swift, /path: photo\.tempPath,[\s\S]*durationMs: 0,[\s\S]*width: Int\(photo\.size\.width\),[\s\S]*height: Int\(photo\.size\.height\),[\s\S]*photoTempFilePaths: \[\],[\s\S]*photoSavedFilePaths: \[photo\.savedPath\]/);
   assert.match(swift, /self\.stopButton\.isEnabled = false[\s\S]*self\.photoButton\.isEnabled = true/);
   assert.match(manifest, /NSPhotoLibraryAddUsageDescription/);
   assert.match(manifest, /NSPhotoLibraryUsageDescription/);
@@ -384,7 +393,9 @@ test('iOS recorder shows a blinking red recording indicator and elapsed timer', 
   assert.match(swift, /private func stopRecordingIndicator\(\)/);
   assert.match(swift, /guard Thread\.isMainThread else \{[\s\S]*DispatchQueue\.main\.async \{[\s\S]*self\.startRecordingIndicator\(\)/);
   assert.match(swift, /guard Thread\.isMainThread else \{[\s\S]*DispatchQueue\.main\.async \{[\s\S]*self\.stopRecordingIndicator\(\)/);
-  assert.match(swift, /Timer\.scheduledTimer\(withTimeInterval: 1\.0, repeats: true/);
+  assert.match(swift, /Timer\.scheduledTimer\(\s*timeInterval: 1\.0,[\s\S]*selector: #selector\(updateRecordingTimer\)/);
+  assert.match(swift, /@objc private func updateRecordingTimer\(\)/);
+  assert.doesNotMatch(swift, /Timer\.scheduledTimer\(withTimeInterval: 1\.0, repeats: true/);
   assert.match(swift, /recordingTimeLabel\.text = Self\.formatRecordingTime\(elapsed: 0\)/);
   assert.match(swift, /UIView\.animate\(\s*withDuration: 0\.8,[\s\S]*recordingDotView\.alpha = 0\.25/);
   assert.match(buildUIBody, /view\.addSubview\(recordingStatusView\)/);
@@ -436,6 +447,7 @@ test('iOS watermark preview supports whole-block drag and pinch zoom burned into
   assert.match(swift, /watermarkContainer\.addSubview\(watermarkImageView\)/);
   assert.match(swift, /UIGestureRecognizerDelegate/);
   assert.match(swift, /private var watermarkContainer = UIView\(\)/);
+  assert.match(swift, /private var watermarkLabelLeadingConstraint: NSLayoutConstraint\?/);
   assert.match(swift, /private let watermarkStateLock = NSLock\(\)/);
   assert.match(swift, /private var watermarkCenterRatio = CGPoint\(x: 0\.5, y: 0\.78\)/);
   assert.match(swift, /private var watermarkScale: CGFloat = 1/);
@@ -447,6 +459,11 @@ test('iOS watermark preview supports whole-block drag and pinch zoom burned into
   assert.match(drawWatermarkBody, /let state = currentWatermarkLayoutState\(\)/);
   assert.match(drawWatermarkBody, /watermarkDrawLayout\(/);
   assert.match(drawWatermarkBody, /state: state/);
+  assert.match(swift, /private func watermarkBoxSize\(canvasSize: CGSize, scale: CGFloat\) -> CGSize/);
+  assert.match(swift, /private func watermarkPreviewLayout\(size: CGSize, scale: CGFloat\) -> WatermarkDrawLayout/);
+  assert.match(swift, /private func watermarkContentLayout\(rect: CGRect, scale: CGFloat\) -> WatermarkDrawLayout/);
+  assert.match(swift, /let previewLayout = watermarkPreviewLayout\(size: size, scale: state\.scale\)/);
+  assert.doesNotMatch(swift, /watermarkDrawLayout\(\s*canvasSize: size,[\s\S]*WatermarkLayoutState\(centerRatio: CGPoint\(x: 0\.5, y: 0\.5\), scale: 1\)/);
   assert.match(layoutBody, /canvasSize\.width \* state\.centerRatio\.x/);
   assert.match(layoutBody, /canvasSize\.height \* state\.centerRatio\.y/);
   assert.match(layoutBody, /state\.scale/);

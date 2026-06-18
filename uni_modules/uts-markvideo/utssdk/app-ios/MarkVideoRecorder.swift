@@ -273,6 +273,10 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     private var watermarkImageWidthConstraint: NSLayoutConstraint?
     private var watermarkImageHeightConstraint: NSLayoutConstraint?
     private var watermarkLabelTopConstraint: NSLayoutConstraint?
+    private var watermarkLabelLeadingConstraint: NSLayoutConstraint?
+    private var watermarkLabelTrailingConstraint: NSLayoutConstraint?
+    private var watermarkLabelBottomConstraint: NSLayoutConstraint?
+    private var watermarkImageTopConstraint: NSLayoutConstraint?
     private var recordingStatusView = UIView()
     private var recordingIndicatorRow = UIStackView()
     private var recordingDotView = UIView()
@@ -296,6 +300,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     private var outputURL: URL?
     private var photoTempFilePaths: [String] = []
     private var photoSavedFilePaths: [String] = []
+    private var photoSizes: [CGSize] = []
     private var recording = false
     private var completed = false
     private var videoFrameCount = 0
@@ -506,17 +511,25 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         let imageWidthConstraint = watermarkImageView.widthAnchor.constraint(equalToConstant: 0)
         let imageHeightConstraint = watermarkImageView.heightAnchor.constraint(equalToConstant: 0)
         let labelTopConstraint = watermarkLabel.topAnchor.constraint(equalTo: watermarkImageView.bottomAnchor, constant: 0)
+        let labelLeadingConstraint = watermarkLabel.leadingAnchor.constraint(equalTo: watermarkContainer.leadingAnchor, constant: 0)
+        let labelTrailingConstraint = watermarkLabel.trailingAnchor.constraint(equalTo: watermarkContainer.trailingAnchor, constant: 0)
+        let labelBottomConstraint = watermarkLabel.bottomAnchor.constraint(equalTo: watermarkContainer.bottomAnchor, constant: 0)
+        let imageTopConstraint = watermarkImageView.topAnchor.constraint(equalTo: watermarkContainer.topAnchor, constant: 0)
         watermarkImageWidthConstraint = imageWidthConstraint
         watermarkImageHeightConstraint = imageHeightConstraint
         watermarkLabelTopConstraint = labelTopConstraint
+        watermarkLabelLeadingConstraint = labelLeadingConstraint
+        watermarkLabelTrailingConstraint = labelTrailingConstraint
+        watermarkLabelBottomConstraint = labelBottomConstraint
+        watermarkImageTopConstraint = imageTopConstraint
 
         NSLayoutConstraint.activate([
-            watermarkLabel.leadingAnchor.constraint(equalTo: watermarkContainer.leadingAnchor, constant: 16),
-            watermarkLabel.trailingAnchor.constraint(equalTo: watermarkContainer.trailingAnchor, constant: -16),
+            labelLeadingConstraint,
+            labelTrailingConstraint,
             labelTopConstraint,
-            watermarkLabel.bottomAnchor.constraint(equalTo: watermarkContainer.bottomAnchor, constant: -10),
+            labelBottomConstraint,
             watermarkImageView.centerXAnchor.constraint(equalTo: watermarkContainer.centerXAnchor),
-            watermarkImageView.topAnchor.constraint(equalTo: watermarkContainer.topAnchor, constant: 10),
+            imageTopConstraint,
             imageWidthConstraint,
             imageHeightConstraint,
             recordingStatusView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -535,23 +548,25 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     private func layoutWatermarkPreview() {
         guard view.bounds.width > 0 && view.bounds.height > 0 else { return }
         let state = currentWatermarkLayoutState()
-        let size = watermarkPreviewSize(scale: state.scale)
+        let size = watermarkBoxSize(canvasSize: view.bounds.size, scale: state.scale)
         let targetCenter = CGPoint(
             x: state.centerRatio.x * view.bounds.width,
             y: state.centerRatio.y * view.bounds.height
         )
         watermarkContainer.bounds = CGRect(origin: .zero, size: size)
         watermarkContainer.center = clampedWatermarkCenter(targetCenter, size: size)
-        let previewLayout = watermarkDrawLayout(
-            canvasSize: size,
-            state: WatermarkLayoutState(centerRatio: CGPoint(x: 0.5, y: 0.5), scale: 1)
-        )
+        let previewLayout = watermarkPreviewLayout(size: size, scale: state.scale)
+        watermarkContainer.layer.cornerRadius = min(previewLayout.cornerRadius, min(size.width, size.height) / 2)
         watermarkImageWidthConstraint?.constant = previewLayout.imageRect?.width ?? 0
         watermarkImageHeightConstraint?.constant = previewLayout.imageRect?.height ?? 0
-        watermarkLabelTopConstraint?.constant = previewLayout.imageRect == nil ? 0 : min(8, watermarkOptions.imageGap / 2)
+        watermarkImageTopConstraint?.constant = previewLayout.imageRect?.minY ?? previewLayout.padding
+        watermarkLabelLeadingConstraint?.constant = previewLayout.padding
+        watermarkLabelTrailingConstraint?.constant = -previewLayout.padding
+        watermarkLabelBottomConstraint?.constant = -(size.height - previewLayout.textRect.maxY)
+        watermarkLabelTopConstraint?.constant = previewLayout.imageRect == nil ? 0 : previewLayout.textRect.minY - (previewLayout.imageRect?.maxY ?? 0)
         watermarkLabel.font = watermarkOptions.textBold
-            ? .boldSystemFont(ofSize: min(20, max(13, previewLayout.fontSize)))
-            : .systemFont(ofSize: min(20, max(13, previewLayout.fontSize)))
+            ? .boldSystemFont(ofSize: previewLayout.fontSize)
+            : .systemFont(ofSize: previewLayout.fontSize)
     }
 
     @objc private func handleWatermarkLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -599,7 +614,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     private func updateWatermarkLayout(center: CGPoint, scale: CGFloat) {
         guard view.bounds.width > 0 && view.bounds.height > 0 else { return }
         let nextScale = min(max(scale, 0.6), 2.2)
-        let size = watermarkPreviewSize(scale: nextScale)
+        let size = watermarkBoxSize(canvasSize: view.bounds.size, scale: nextScale)
         let clampedCenter = clampedWatermarkCenter(center, size: size)
         let nextRatio = CGPoint(
             x: min(max(clampedCenter.x / view.bounds.width, 0), 1),
@@ -619,10 +634,11 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         return state
     }
 
-    private func watermarkPreviewSize(scale: CGFloat) -> CGSize {
-        let baseWidth = min(max(220, view.bounds.width * watermarkOptions.boxWidthRatio), max(180, view.bounds.width - 36))
-        let baseHeight = max(56, view.bounds.height * watermarkOptions.boxHeightRatio)
-        return CGSize(width: baseWidth * scale, height: min(baseHeight, 150) * scale)
+    private func watermarkBoxSize(canvasSize: CGSize, scale: CGFloat) -> CGSize {
+        return CGSize(
+            width: max(1, canvasSize.width * watermarkOptions.boxWidthRatio * scale),
+            height: max(1, canvasSize.height * watermarkOptions.boxHeightRatio * scale)
+        )
     }
 
     private func clampedWatermarkCenter(_ center: CGPoint, size: CGSize) -> CGPoint {
@@ -659,23 +675,32 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
     }
 
     private func watermarkDrawLayout(canvasSize: CGSize, state: WatermarkLayoutState) -> WatermarkDrawLayout {
-        let boxWidth = max(1, canvasSize.width * watermarkOptions.boxWidthRatio * state.scale)
-        let boxHeight = max(1, canvasSize.height * watermarkOptions.boxHeightRatio * state.scale)
+        let boxSize = watermarkBoxSize(canvasSize: canvasSize, scale: state.scale)
         let center = CGPoint(
             x: canvasSize.width * state.centerRatio.x,
             y: canvasSize.height * state.centerRatio.y
         )
         let rect = CGRect(
-            x: center.x - boxWidth / 2,
-            y: center.y - boxHeight / 2,
-            width: boxWidth,
-            height: boxHeight
+            x: center.x - boxSize.width / 2,
+            y: center.y - boxSize.height / 2,
+            width: boxSize.width,
+            height: boxSize.height
         )
-        let padding = min(watermarkOptions.padding * state.scale, min(boxWidth, boxHeight) * 0.28)
-        let gap = min(watermarkOptions.imageGap * state.scale, max(0, boxHeight * 0.18))
+        return watermarkContentLayout(rect: rect, scale: state.scale)
+    }
+
+    private func watermarkPreviewLayout(size: CGSize, scale: CGFloat) -> WatermarkDrawLayout {
+        return watermarkContentLayout(rect: CGRect(origin: .zero, size: size), scale: scale)
+    }
+
+    private func watermarkContentLayout(rect: CGRect, scale: CGFloat) -> WatermarkDrawLayout {
+        let boxWidth = rect.width
+        let boxHeight = rect.height
+        let padding = min(watermarkOptions.padding * scale, min(boxWidth, boxHeight) * 0.28)
+        let gap = min(watermarkOptions.imageGap * scale, max(0, boxHeight * 0.18))
         let hasImage = watermarkImage != nil
-        let imageWidth = min(watermarkOptions.imageWidth * state.scale, max(0, boxWidth - padding * 2))
-        let imageHeight = min(watermarkOptions.imageHeight * state.scale, max(0, boxHeight * 0.46))
+        let imageWidth = min(watermarkOptions.imageWidth * scale, max(0, boxWidth - padding * 2))
+        let imageHeight = min(watermarkOptions.imageHeight * scale, max(0, boxHeight * 0.46))
         let imageRect = hasImage && imageWidth > 0 && imageHeight > 0
             ? CGRect(
                 x: rect.midX - imageWidth / 2,
@@ -695,8 +720,8 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             rect: rect,
             imageRect: imageRect,
             textRect: textRect,
-            fontSize: max(10, watermarkOptions.fontSize * state.scale),
-            cornerRadius: max(0, watermarkOptions.borderRadius * state.scale),
+            fontSize: max(10, watermarkOptions.fontSize * scale),
+            cornerRadius: max(0, watermarkOptions.borderRadius * scale),
             padding: padding
         )
     }
@@ -714,11 +739,13 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         recordingDotView.layer.removeAllAnimations()
         recordingDotView.alpha = 1
         recordingTimer?.invalidate()
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self, let startDate = self.recordingStartDate else { return }
-            let elapsed = Int(Date().timeIntervalSince(startDate))
-            self.recordingTimeLabel.text = Self.formatRecordingTime(elapsed: elapsed)
-        }
+        recordingTimer = Timer.scheduledTimer(
+            timeInterval: 1.0,
+            target: self,
+            selector: #selector(updateRecordingTimer),
+            userInfo: nil,
+            repeats: true
+        )
         if let timer = recordingTimer {
             RunLoop.main.add(timer, forMode: .common)
         }
@@ -731,6 +758,12 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             }
         )
         scheduleMaxDurationStopIfNeeded()
+    }
+
+    @objc private func updateRecordingTimer() {
+        guard let startDate = recordingStartDate else { return }
+        let elapsed = Int(Date().timeIntervalSince(startDate))
+        recordingTimeLabel.text = Self.formatRecordingTime(elapsed: elapsed)
     }
 
     private func stopRecordingIndicator() {
@@ -915,6 +948,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
                         if let savedPath = savedPath {
                             self.photoTempFilePaths.append(tempPath)
                             self.photoSavedFilePaths.append(savedPath)
+                            self.photoSizes.append(image.size)
                             self.startButton.isEnabled = true
                             self.stopButton.isEnabled = false
                             self.photoButton.isEnabled = true
@@ -1323,6 +1357,13 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         context.restoreGState()
     }
 
+    private func latestPhotoResult() -> (tempPath: String, savedPath: String, size: CGSize)? {
+        guard let tempPath = photoTempFilePaths.last, !tempPath.isEmpty else { return nil }
+        let savedPath = photoSavedFilePaths.last ?? tempPath
+        let size = photoSizes.last ?? videoSize
+        return (tempPath, savedPath, size)
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         stopRecordingIndicator()
@@ -1332,16 +1373,16 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
             object: nil
         )
         if !completed {
-            if enablePhoto && !recording && !photoTempFilePaths.isEmpty {
+            if enablePhoto && !recording, let photo = latestPhotoResult() {
                 completed = true
                 MarkVideoRecorder.complete(
-                    path: "",
+                    path: photo.tempPath,
                     durationMs: 0,
-                    width: 0,
-                    height: 0,
+                    width: Int(photo.size.width),
+                    height: Int(photo.size.height),
                     watermark: watermark,
-                    photoTempFilePaths: photoTempFilePaths,
-                    photoSavedFilePaths: photoSavedFilePaths
+                    photoTempFilePaths: [],
+                    photoSavedFilePaths: [photo.savedPath]
                 )
                 return
             }
@@ -1364,7 +1405,7 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
 
     @objc private func finishPhotoSession() {
         guard enablePhoto, !recording else { return }
-        guard !photoTempFilePaths.isEmpty else {
+        guard let photo = latestPhotoResult() else {
             completed = true
             MarkVideoRecorder.fail("Recording cancelled.")
             dismiss(animated: true)
@@ -1372,13 +1413,13 @@ private final class MarkVideoRecorderViewController: UIViewController, AVCapture
         }
         completed = true
         MarkVideoRecorder.complete(
-            path: "",
+            path: photo.tempPath,
             durationMs: 0,
-            width: 0,
-            height: 0,
+            width: Int(photo.size.width),
+            height: Int(photo.size.height),
             watermark: watermark,
-            photoTempFilePaths: photoTempFilePaths,
-            photoSavedFilePaths: photoSavedFilePaths
+            photoTempFilePaths: [],
+            photoSavedFilePaths: [photo.savedPath]
         )
         dismiss(animated: true)
     }

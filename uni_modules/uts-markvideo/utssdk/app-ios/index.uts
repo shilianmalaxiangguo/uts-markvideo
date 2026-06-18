@@ -69,12 +69,15 @@ export const recordWatermarkVideo : RecordWatermarkVideo = function (options : R
       photoTempFilePathsText: string,
       photoSavedFilePathsText: string
     ) => {
+      const photoTempFilePaths = decodePathList(photoTempFilePathsText)
+      const photoSavedFilePaths = decodePathList(photoSavedFilePathsText)
+      const isPhotoOnly = actualDurationMs == 0 && tempFilePath.length > 0 && photoTempFilePaths.length == 0
       const res: RecordWatermarkVideoSuccess = {
-        kind: photoSavedFilePathsText.length > 0 && tempFilePath.length == 0 ? 'photo' : 'recording',
+        kind: isPhotoOnly ? 'photo' : 'recording',
         tempFilePath: tempFilePath,
-        savedFilePath: tempFilePath,
-        photoTempFilePaths: decodePathList(photoTempFilePathsText),
-        photoSavedFilePaths: decodePathList(photoSavedFilePathsText),
+        savedFilePath: isPhotoOnly && photoSavedFilePaths.length > 0 ? photoSavedFilePaths[0] : tempFilePath,
+        photoTempFilePaths: isPhotoOnly ? [] : photoTempFilePaths,
+        photoSavedFilePaths: isPhotoOnly ? [] : photoSavedFilePaths,
         durationMs: actualDurationMs,
         width: actualWidth,
         height: actualHeight,
