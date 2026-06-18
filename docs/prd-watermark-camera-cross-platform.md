@@ -38,6 +38,8 @@
 
 `options.watermark` 由 Page 层整理后传给原生相机；原生层只消费已解析好的路径和样式，不负责请求 API。
 
+图片水印资源由 Page 层请求 `GET /api/watermark/logo-assets` 获取，接口返回 `logos[].imageUrl`、`name`、`width`、`height`。Page 负责把远程图片下载为本地临时路径，再写入 `watermark.imagePath`；如果接口不可用，Page 可以使用预设占位企业 Logo 或让用户从相册替换。
+
 | 字段 | 类型 / 默认值 | 语义 |
 | --- | --- | --- |
 | `text` | `string` / `''` | 文字水印；为空时使用原生默认文案；优先于旧版顶层 `text`。 |

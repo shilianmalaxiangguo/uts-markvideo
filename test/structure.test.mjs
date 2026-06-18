@@ -374,6 +374,32 @@ test('iOS recorder can optionally capture watermarked photos', async () => {
   assert.match(page, /Saved photos/);
 });
 
+test('Page resolves watermark logo assets before opening the native recorder', async () => {
+  const page = await readFile(path.join(root, 'pages/index/index.vue'), 'utf8');
+  const apiDoc = await readFile(path.join(root, 'docs/api.md'), 'utf8');
+  const prd = await readFile(path.join(root, 'docs/prd-watermark-camera-cross-platform.md'), 'utf8');
+
+  assert.match(apiDoc, /GET \/api\/watermark\/logo-assets/);
+  assert.match(apiDoc, /imageUrl: 'https:\/\/example\.com\/assets\/company-logo\.png'/);
+  assert.match(apiDoc, /watermark\.imagePath/);
+  assert.match(prd, /GET \/api\/watermark\/logo-assets/);
+  assert.match(prd, /logos\[\]\.imageUrl/);
+  assert.match(page, /const WATERMARK_LOGO_API = ''/);
+  assert.match(page, /const FALLBACK_LOGO_ASSETS = \[/);
+  assert.match(page, /imageUrl: 'https:\/\/dummyimage\.com\/240x240\/17212b\/ffffff\.png&text=LOGO'/);
+  assert.match(page, /mounted\(\) \{[\s\S]*this\.loadWatermarkLogoAssets\(\)/);
+  assert.match(page, /uni\.request\(\{[\s\S]*url: WATERMARK_LOGO_API/);
+  assert.match(page, /normalizeLogoAssets\(res\.data\)/);
+  assert.match(page, /uni\.downloadFile\(\{[\s\S]*url: logo\.imageUrl/);
+  assert.match(page, /this\.watermarkImagePath = res\.tempFilePath/);
+  assert.match(page, /uni\.chooseImage\(\{[\s\S]*this\.watermarkImagePath = imagePath/);
+  assert.match(page, /imagePath: this\.watermarkImagePath/);
+  assert.match(page, /imageWidth: this\.selectedLogoWidth/);
+  assert.match(page, /imageHeight: this\.selectedLogoHeight/);
+  assert.match(page, /<image[\s\S]*class="logoImage"[\s\S]*:src="logoPreviewPath"/);
+  assert.match(page, /class="watermarkPreviewText"/);
+});
+
 test('iOS recorder shows a blinking red recording indicator and elapsed timer', async () => {
   const swift = await readFile(
     path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift'),
