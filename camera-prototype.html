@@ -1,0 +1,1136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>内嵌水印相机组件原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #edf1f4;
+      --phone: #ffffff;
+      --text: #17212b;
+      --muted: #6f7b86;
+      --line: #dce4eb;
+      --soft: #f6f8fa;
+      --brand: #126fdb;
+      --brand-soft: #e8f2ff;
+      --danger: #e54848;
+      --camera: #131a17;
+      --camera-mid: #27352e;
+      --shadow: 0 18px 44px rgba(23, 33, 43, 0.16), 0 2px 8px rgba(23, 33, 43, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: var(--canvas);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      text-rendering: optimizeLegibility;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .phone {
+      width: min(390px, calc(100vw - 32px));
+      min-height: 820px;
+      overflow: hidden;
+      border: 1px solid #c9d3dc;
+      border-radius: 32px;
+      background: var(--phone);
+      box-shadow: var(--shadow);
+    }
+
+    .screen {
+      min-height: 820px;
+      display: none;
+      background: #ffffff;
+    }
+
+    .screen.is-active {
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .app-header,
+    .biz-header {
+      display: grid;
+      gap: 6px;
+      padding: 18px 20px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    h1,
+    h2,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 21px;
+      line-height: 1.25;
+    }
+
+    h2 {
+      font-size: 18px;
+      line-height: 1.3;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .ghost-button,
+    .primary-button,
+    .plain-button {
+      min-height: 38px;
+      border-radius: 8px;
+      padding: 0 13px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .primary-button {
+      border: 0;
+      background: var(--brand);
+      color: #ffffff;
+    }
+
+    .ghost-button {
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: var(--text);
+    }
+
+    .plain-button {
+      border: 0;
+      background: transparent;
+      color: var(--brand);
+    }
+
+    .app-body {
+      display: grid;
+      gap: 18px;
+      align-content: start;
+      padding: 18px 20px 24px;
+      background: var(--soft);
+    }
+
+    .template-editor,
+    .template-list {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .template-editor {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      color: #46515c;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .field input {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid #cfd9e2;
+      border-radius: 7px;
+      padding: 0 11px;
+      background: #ffffff;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .editor-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 13px 14px 0;
+    }
+
+    .section-title strong {
+      font-size: 14px;
+    }
+
+    .template-list {
+      display: grid;
+      gap: 10px;
+      padding-bottom: 14px;
+    }
+
+    .template-card {
+      width: calc(100% - 28px);
+      min-height: 68px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px;
+      margin: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px;
+      background: #ffffff;
+      color: var(--text);
+      text-align: left;
+    }
+
+    .template-card.is-selected {
+      border-color: var(--brand);
+      background: var(--brand-soft);
+    }
+
+    .watermark-sample {
+      width: fit-content;
+      max-width: 205px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 1px 4px rgba(23, 33, 43, 0.12);
+    }
+
+    .watermark-sample strong {
+      font-size: 14px;
+      line-height: 1.2;
+    }
+
+    .watermark-sample span {
+      color: #56616d;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .sample-copy {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .template-image,
+    .preview-image {
+      flex: 0 0 auto;
+      display: none;
+      place-items: center;
+      border-radius: 7px;
+      background:
+        radial-gradient(circle at 36% 38%, #ffd348 0 14%, transparent 15%),
+        radial-gradient(circle at 30% 40%, #f3b7d2 0 32%, transparent 33%),
+        radial-gradient(circle at 66% 35%, #d9bee8 0 28%, transparent 29%),
+        linear-gradient(145deg, #4d7a39, #18251d);
+    }
+
+    .watermark-sample.has-image .template-image {
+      width: 34px;
+      height: 34px;
+      display: grid;
+    }
+
+    .template-card small {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .open-camera {
+      min-height: 46px;
+      border-radius: 8px;
+      font-size: 15px;
+    }
+
+    .biz-screen {
+      background: #101614;
+    }
+
+    .biz-screen.is-active {
+      grid-template-rows: 1fr;
+    }
+
+    .biz-header {
+      position: absolute;
+      z-index: 4;
+      top: 0;
+      left: 0;
+      right: 0;
+      grid-template-columns: 36px 1fr 74px;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 0;
+      padding: 14px 14px 10px;
+      background: linear-gradient(180deg, rgba(0, 0, 0, 0.54), rgba(0, 0, 0, 0));
+      color: #ffffff;
+    }
+
+    .back-button {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.35);
+      color: #ffffff;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .top-card {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+      justify-self: center;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 999px;
+      padding: 7px 14px;
+      background: rgba(0, 0, 0, 0.34);
+      color: #ffffff;
+      text-align: center;
+      backdrop-filter: blur(14px);
+    }
+
+    .top-card strong {
+      overflow: hidden;
+      font-size: 13px;
+      line-height: 1.1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .top-card span {
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 10px;
+      line-height: 1.1;
+    }
+
+    .flash-button {
+      min-height: 34px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+      padding: 0 10px;
+      background: rgba(0, 0, 0, 0.35);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 800;
+      backdrop-filter: blur(14px);
+    }
+
+    .biz-body {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      min-height: 820px;
+      background: #101614;
+    }
+
+    .camera-zone {
+      display: grid;
+      place-items: center;
+      padding: 0;
+      background: #101614;
+    }
+
+    .native-camera {
+      width: 100%;
+      min-height: 642px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 0;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.13), transparent 26%),
+        radial-gradient(circle at 68% 30%, rgba(255, 255, 255, 0.14) 0 12%, transparent 13%),
+        linear-gradient(145deg, #405247 0 18%, var(--camera-mid) 19% 56%, var(--camera) 57% 100%);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+    }
+
+    .native-camera::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, transparent 0 48%, rgba(255, 255, 255, 0.16) 49% 50%, transparent 51%),
+        linear-gradient(0deg, transparent 0 52%, rgba(255, 255, 255, 0.1) 53% 54%, transparent 55%);
+      opacity: 0.7;
+    }
+
+    .record-dot {
+      position: absolute;
+      top: 72px;
+      right: 12px;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: rgba(0, 0, 0, 0.48);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .record-dot::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--danger);
+    }
+
+    .record-dot.is-recording {
+      display: inline-flex;
+    }
+
+    .watermark-frame {
+      width: 64%;
+      min-height: 92px;
+      position: absolute;
+      left: 50%;
+      top: 170px;
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      transform: translateX(-50%);
+      border: 2px dashed rgba(255, 255, 255, 0.82);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .watermark-frame.is-hidden {
+      display: none;
+    }
+
+    .delete-watermark {
+      width: 31px;
+      height: 31px;
+      position: absolute;
+      top: -16px;
+      right: -16px;
+      border: 0;
+      border-radius: 50%;
+      background: #171717;
+      color: #ffffff;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .watermark-preview {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      max-width: 100%;
+      padding: 10px 12px;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.78);
+      color: #26313b;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+    }
+
+    .watermark-preview.has-image .preview-image {
+      width: 42px;
+      height: 42px;
+      display: grid;
+    }
+
+    .preview-copy {
+      display: grid;
+      justify-items: center;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .zoom-stack {
+      position: absolute;
+      right: 14px;
+      top: 204px;
+      z-index: 2;
+      display: grid;
+      gap: 10px;
+    }
+
+    .zoom-button {
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.34);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 900;
+      backdrop-filter: blur(12px);
+    }
+
+    .zoom-button[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.88);
+      color: #111820;
+    }
+
+    .watermark-preview strong {
+      max-width: 180px;
+      overflow: hidden;
+      font-size: 15px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .watermark-preview span {
+      max-width: 180px;
+      overflow: hidden;
+      color: #56616d;
+      font-size: 12px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .control-zone {
+      display: grid;
+      align-content: start;
+      gap: 13px;
+      padding: 12px 22px 18px;
+      background: #050706;
+      color: #ffffff;
+    }
+
+    .main-controls {
+      display: grid;
+      grid-template-columns: 70px 1fr 70px;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .media-button,
+    .stamp-button {
+      width: 58px;
+      height: 58px;
+      justify-self: center;
+      border: 2px solid var(--line);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.14);
+      color: var(--text);
+      box-shadow: none;
+    }
+
+    .media-thumb {
+      width: 42px;
+      height: 42px;
+      display: block;
+      margin: auto;
+      border-radius: 9px;
+      border: 1px solid #acb8c4;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent 42%),
+        linear-gradient(150deg, #7a8b7b 0 45%, #1d2823 46% 100%);
+    }
+
+    .stamp-button {
+      color: #ffffff;
+      font-size: 28px;
+      font-weight: 900;
+    }
+
+    .shutter {
+      width: 88px;
+      height: 88px;
+      justify-self: center;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.46);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.18);
+      box-shadow:
+        inset 0 0 0 5px rgba(255, 255, 255, 0.46),
+        inset 0 1px 8px rgba(255, 255, 255, 0.28),
+        0 4px 18px rgba(0, 0, 0, 0.22);
+      backdrop-filter: blur(14px);
+    }
+
+    .shutter::before {
+      content: "";
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: none;
+      transition: border-radius 160ms ease, background 160ms ease, width 160ms ease, height 160ms ease;
+    }
+
+    .shutter.video-mode {
+      border-color: rgba(255, 59, 48, 0.58);
+      background: rgba(255, 59, 48, 0.16);
+      box-shadow:
+        inset 0 0 0 5px rgba(255, 59, 48, 0.46),
+        inset 0 1px 8px rgba(255, 255, 255, 0.22),
+        0 4px 18px rgba(0, 0, 0, 0.22);
+    }
+
+    .shutter.video-mode::before {
+      background: #ff3b30;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+    }
+
+    .shutter.is-recording::before {
+      width: 45px;
+      height: 45px;
+      border-radius: 10px;
+    }
+
+    .mode-switch {
+      width: fit-content;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      justify-self: center;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .mode-switch button {
+      min-width: 64px;
+      min-height: 28px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.62);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .mode-switch button[aria-pressed="true"] {
+      background: transparent;
+      color: #ffd232;
+      box-shadow: none;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: none;
+      place-items: end center;
+      padding: 18px;
+      background: rgba(13, 20, 28, 0.38);
+    }
+
+    .modal.is-open {
+      display: grid;
+    }
+
+    .sheet {
+      width: min(360px, calc(100vw - 36px));
+      max-height: 70vh;
+      overflow: auto;
+      border-radius: 16px 16px 12px 12px;
+      background: #ffffff;
+      box-shadow: 0 18px 44px rgba(13, 20, 28, 0.22);
+    }
+
+    .sheet-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .sheet-list {
+      display: grid;
+      gap: 10px;
+      padding: 14px 16px 18px;
+    }
+
+    .sheet-template {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #ffffff;
+      text-align: left;
+    }
+
+    .sheet-template.is-selected {
+      border-color: var(--brand);
+      background: var(--brand-soft);
+    }
+
+    .result-strip {
+      display: none;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .result-strip.is-open {
+      display: grid;
+    }
+
+    .result-item {
+      height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.48), transparent 42%),
+        linear-gradient(150deg, #7a8b7b 0 45%, #1d2823 46% 100%);
+    }
+
+    .sr-only {
+      width: 1px;
+      height: 1px;
+      position: absolute;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+
+    button:focus-visible,
+    input:focus-visible {
+      outline: 3px solid rgba(18, 111, 219, 0.38);
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 420px) {
+      body {
+        padding: 0;
+        background: #ffffff;
+      }
+
+      .phone {
+        width: 100vw;
+        min-height: 100vh;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .screen {
+        min-height: 100vh;
+      }
+
+      .native-camera {
+        width: 100%;
+        min-height: calc(100vh - 202px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="phone" aria-label="内嵌水印相机组件手机原型">
+    <section class="screen is-active" id="appScreen" aria-label="App.vue 模拟初始页">
+      <header class="app-header">
+        <div class="header-row">
+          <div>
+            <h1>App.vue 模拟页</h1>
+            <p class="hint">模拟携带 3 个水印模板参数，跳转到真实业务相机页。</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <section class="template-editor" aria-label="水印模板编辑界面">
+          <h2>模板编辑</h2>
+          <div class="field">
+            <label for="templateTitle">主标题</label>
+            <input id="templateTitle" maxlength="18" value="今日水印相机">
+          </div>
+          <div class="field">
+            <label for="templateDesc">副标题</label>
+            <input id="templateDesc" maxlength="28" value="">
+          </div>
+          <div class="editor-actions">
+            <button class="ghost-button" type="button" id="resetTemplateButton">恢复默认</button>
+            <button class="primary-button" type="button" id="saveTemplateButton">更新当前模板</button>
+          </div>
+        </section>
+
+        <section class="template-list" aria-label="外层传入的水印模板列表">
+          <div class="section-title">
+            <strong>外层模板</strong>
+            <span class="hint">传入相机组件</span>
+          </div>
+          <div id="appTemplateList"></div>
+        </section>
+
+        <button class="primary-button open-camera" type="button" id="openCameraButton">携带模板参数跳转</button>
+      </div>
+    </section>
+
+    <section class="screen biz-screen" id="cameraScreen" aria-label="业务页面内嵌原生相机组件">
+      <header class="biz-header">
+        <button class="back-button" type="button" id="backButton" aria-label="返回 App.vue 模拟页">‹</button>
+        <div class="top-card">
+          <strong id="currentTemplateLabel">纯主标题</strong>
+          <span>当前水印模板</span>
+        </div>
+        <button class="flash-button" type="button" id="flashButton" aria-pressed="false">闪光灯 关</button>
+      </header>
+
+      <div class="biz-body">
+        <section class="camera-zone" aria-label="页面内嵌原生相机组件挂载区域">
+          <div class="native-camera" aria-label="内嵌原生相机取景器">
+            <div class="record-dot" id="recordDot">REC</div>
+            <div class="watermark-frame" id="watermarkFrame" aria-label="组件内水印预览，虚线边框；真实组件内处理拖动">
+              <button class="delete-watermark" type="button" id="deleteWatermarkButton" aria-label="清除当前水印">×</button>
+              <div class="watermark-preview">
+                <span class="preview-image" id="cameraWatermarkImage" aria-hidden="true">&nbsp;</span>
+                <span class="preview-copy">
+                  <strong id="cameraWatermarkTitle">今日水印相机</strong>
+                  <span id="cameraWatermarkDesc"></span>
+                </span>
+              </div>
+            </div>
+            <div class="zoom-stack" aria-label="焦段切换">
+              <button class="zoom-button" type="button" aria-pressed="false" data-zoom="2x">2x</button>
+              <button class="zoom-button" type="button" aria-pressed="true" data-zoom="1x">1x</button>
+              <button class="zoom-button" type="button" aria-pressed="false" data-zoom="wide">广角</button>
+            </div>
+            <span class="sr-only" id="componentEvent" aria-live="polite">相机已准备</span>
+          </div>
+        </section>
+
+        <section class="control-zone" aria-label="宿主页面相机控制区">
+          <div class="mode-switch" aria-label="拍照和录像模式切换">
+            <button type="button" data-mode="video" aria-pressed="false">视频</button>
+            <button type="button" data-mode="photo" aria-pressed="true">照片</button>
+          </div>
+
+          <div class="main-controls">
+            <button class="media-button" type="button" id="resultButton" aria-expanded="false" aria-controls="resultStrip" aria-label="查看照片和录像结果">
+              <span class="media-thumb" aria-hidden="true">&nbsp;</span>
+            </button>
+            <button class="shutter" type="button" id="shutterButton" aria-label="拍照或录像快门">
+              <span class="sr-only">拍照或录像快门</span>
+            </button>
+            <button class="stamp-button" type="button" id="stampButton" aria-label="选择水印模板">印</button>
+          </div>
+
+          <div class="result-strip" id="resultStrip" aria-label="照片和录像输出结果">
+            <div class="result-item"></div>
+            <div class="result-item"></div>
+            <div class="result-item"></div>
+          </div>
+
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal" id="templateModal" aria-hidden="true">
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="templateModalTitle">
+      <div class="sheet-header">
+        <div>
+          <h2 id="templateModalTitle">选择水印模板</h2>
+          <p class="hint">模板来自 App.vue，当前页面只选择当前水印。</p>
+        </div>
+        <button class="plain-button" type="button" id="closeModalButton">关闭</button>
+      </div>
+      <div class="sheet-list" id="sheetTemplateList"></div>
+    </section>
+  </div>
+
+  <script>
+    const defaultTemplates = [
+      {
+        templateId: "title-only",
+        templateName: "纯主标题",
+        templateType: "title_text",
+        mainTitleText: "今日水印相机",
+        subtitleText: "",
+        imagePath: "",
+        imageMimeType: ""
+      },
+      {
+        templateId: "title-subtitle",
+        templateName: "主副标题",
+        templateType: "title_subtitle_text",
+        mainTitleText: "门店巡检",
+        subtitleText: "照片和录像共用同一套水印",
+        imagePath: "",
+        imageMimeType: ""
+      },
+      {
+        templateId: "png-title-subtitle",
+        templateName: "PNG 图文",
+        templateType: "image_title_subtitle",
+        mainTitleText: "交付留档",
+        subtitleText: "PNG 图片 + 主副标题",
+        imagePath: "assets/watermark-demo.png",
+        imageMimeType: "image/png"
+      }
+    ];
+
+    let templates = [...defaultTemplates];
+    let selectedTemplateId = "title-only";
+    let mode = "photo";
+    let isRecording = false;
+    let outputCount = 0;
+    let lastFocusedElement = null;
+
+    const appScreen = document.getElementById("appScreen");
+    const cameraScreen = document.getElementById("cameraScreen");
+    const appTemplateList = document.getElementById("appTemplateList");
+    const sheetTemplateList = document.getElementById("sheetTemplateList");
+    const templateTitle = document.getElementById("templateTitle");
+    const templateDesc = document.getElementById("templateDesc");
+    const saveTemplateButton = document.getElementById("saveTemplateButton");
+    const resetTemplateButton = document.getElementById("resetTemplateButton");
+    const openCameraButton = document.getElementById("openCameraButton");
+    const backButton = document.getElementById("backButton");
+    const stampButton = document.getElementById("stampButton");
+    const templateModal = document.getElementById("templateModal");
+    const closeModalButton = document.getElementById("closeModalButton");
+    const currentTemplateLabel = document.getElementById("currentTemplateLabel");
+    const cameraWatermarkPreview = document.querySelector(".watermark-preview");
+    const cameraWatermarkImage = document.getElementById("cameraWatermarkImage");
+    const cameraWatermarkTitle = document.getElementById("cameraWatermarkTitle");
+    const cameraWatermarkDesc = document.getElementById("cameraWatermarkDesc");
+    const componentEvent = document.getElementById("componentEvent");
+    const watermarkFrame = document.getElementById("watermarkFrame");
+    const deleteWatermarkButton = document.getElementById("deleteWatermarkButton");
+    const shutterButton = document.getElementById("shutterButton");
+    const recordDot = document.getElementById("recordDot");
+    const resultButton = document.getElementById("resultButton");
+    const resultStrip = document.getElementById("resultStrip");
+    const flashButton = document.getElementById("flashButton");
+    const modeButtons = document.querySelectorAll("[data-mode]");
+    const zoomButtons = document.querySelectorAll("[data-zoom]");
+
+    function getSelectedTemplate() {
+      return templates.find((item) => item.templateId === selectedTemplateId) || templates[0];
+    }
+
+    function writeLog(message) {
+      componentEvent.textContent = message;
+    }
+
+    function syncShutterMode() {
+      shutterButton.classList.toggle("video-mode", mode === "video");
+      if (mode === "photo" && isRecording) {
+        isRecording = false;
+        shutterButton.classList.remove("is-recording");
+        recordDot.classList.remove("is-recording");
+      }
+    }
+
+    function renderTemplateButton(template, context) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = context === "sheet" ? "sheet-template" : "template-card";
+      if (template.templateId === selectedTemplateId) {
+        button.classList.add("is-selected");
+      }
+      button.dataset.templateId = template.templateId;
+
+      const sample = document.createElement("div");
+      sample.className = "watermark-sample";
+      if (template.templateType === "image_title_subtitle") {
+        sample.classList.add("has-image");
+      }
+      const image = document.createElement("span");
+      image.className = "template-image";
+      image.setAttribute("aria-hidden", "true");
+      image.textContent = " ";
+      const copy = document.createElement("span");
+      copy.className = "sample-copy";
+      const title = document.createElement("strong");
+      title.textContent = template.mainTitleText;
+      const desc = document.createElement("span");
+      desc.textContent = template.subtitleText || template.templateName;
+      copy.append(title, desc);
+      sample.append(image, copy);
+      button.append(sample);
+
+      if (context !== "sheet") {
+        const marker = document.createElement("small");
+        marker.textContent = template.templateId === selectedTemplateId ? "默认" : template.templateName;
+        button.append(marker);
+      }
+
+      button.addEventListener("click", () => {
+        selectedTemplateId = template.templateId;
+        applyTemplateToCamera();
+        renderTemplates();
+        closeTemplateModal();
+      });
+
+      return button;
+    }
+
+    function renderTemplates() {
+      appTemplateList.replaceChildren(...templates.map((template) => renderTemplateButton(template, "app")));
+      sheetTemplateList.replaceChildren(...templates.map((template) => renderTemplateButton(template, "sheet")));
+    }
+
+    function applyTemplateToCamera() {
+      const template = getSelectedTemplate();
+      if (!template) return;
+
+      const hasImage = template.templateType === "image_title_subtitle";
+      const hasSubtitle = template.templateType !== "title_text" && template.subtitleText;
+      cameraWatermarkPreview.classList.toggle("has-image", hasImage);
+      cameraWatermarkImage.setAttribute("aria-hidden", String(!hasImage));
+      cameraWatermarkTitle.textContent = template.mainTitleText;
+      cameraWatermarkDesc.textContent = hasSubtitle ? template.subtitleText : "";
+      cameraWatermarkDesc.style.display = hasSubtitle ? "" : "none";
+      currentTemplateLabel.textContent = template.templateName;
+      watermarkFrame.classList.remove("is-hidden");
+      writeLog(`已应用水印模板「${template.templateName}」，照片和录像都会使用。`);
+    }
+
+    function showScreen(target) {
+      appScreen.classList.toggle("is-active", target === "app");
+      cameraScreen.classList.toggle("is-active", target === "camera");
+      if (target === "camera") {
+        applyTemplateToCamera();
+      }
+    }
+
+    function openTemplateModal() {
+      lastFocusedElement = document.activeElement;
+      renderTemplates();
+      templateModal.classList.add("is-open");
+      templateModal.setAttribute("aria-hidden", "false");
+      closeModalButton.focus();
+    }
+
+    function closeTemplateModal() {
+      templateModal.classList.remove("is-open");
+      templateModal.setAttribute("aria-hidden", "true");
+      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
+        lastFocusedElement.focus();
+      }
+    }
+
+    saveTemplateButton.addEventListener("click", () => {
+      const title = templateTitle.value.trim() || "未命名模板";
+      const desc = templateDesc.value.trim() || "默认水印描述";
+      templates = templates.map((item) => {
+        if (item.templateId !== selectedTemplateId) return item;
+        return {
+          ...item,
+          mainTitleText: title,
+          subtitleText: item.templateType === "title_text" ? "" : desc
+        };
+      });
+      renderTemplates();
+    });
+
+    resetTemplateButton.addEventListener("click", () => {
+      templates = [...defaultTemplates];
+      selectedTemplateId = "title-only";
+      templateTitle.value = "今日水印相机";
+      templateDesc.value = "";
+      renderTemplates();
+    });
+
+    openCameraButton.addEventListener("click", () => showScreen("camera"));
+    backButton.addEventListener("click", () => showScreen("app"));
+    stampButton.addEventListener("click", openTemplateModal);
+    closeModalButton.addEventListener("click", closeTemplateModal);
+
+    templateModal.addEventListener("click", (event) => {
+      if (event.target === templateModal) {
+        closeTemplateModal();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && templateModal.classList.contains("is-open")) {
+        closeTemplateModal();
+      }
+    });
+
+    modeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        mode = button.dataset.mode;
+        modeButtons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+        syncShutterMode();
+        writeLog(mode === "photo" ? "已切换到照片模式。" : "已切换到视频模式。");
+      });
+    });
+
+    zoomButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        zoomButtons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+        writeLog(`焦段切换：${button.dataset.zoom}`);
+      });
+    });
+
+    flashButton.addEventListener("click", () => {
+      const enabled = flashButton.getAttribute("aria-pressed") !== "true";
+      flashButton.setAttribute("aria-pressed", String(enabled));
+      flashButton.textContent = enabled ? "闪光灯 开" : "闪光灯 关";
+      writeLog(enabled ? "已开启闪光灯。" : "已关闭闪光灯。");
+    });
+
+    shutterButton.addEventListener("click", () => {
+      if (mode === "photo") {
+        outputCount += 1;
+        writeLog(`拍照完成：photo_${outputCount}.jpg，已叠加当前水印。`);
+        return;
+      }
+
+      isRecording = !isRecording;
+      shutterButton.classList.toggle("is-recording", isRecording);
+      recordDot.classList.toggle("is-recording", isRecording);
+      outputCount += isRecording ? 0 : 1;
+      writeLog(isRecording ? "开始录像：当前水印进入视频预览。" : `录像完成：video_${outputCount}.mp4，已叠加当前水印。`);
+    });
+
+    deleteWatermarkButton.addEventListener("click", () => {
+      watermarkFrame.classList.add("is-hidden");
+      writeLog("已清除当前水印预览。");
+    });
+
+    resultButton.addEventListener("click", () => {
+      const isOpen = resultStrip.classList.toggle("is-open");
+      resultButton.setAttribute("aria-expanded", String(isOpen));
+    });
+
+    renderTemplates();
+  </script>
+</body>
+</html>

@@ -1,219 +1,128 @@
-# uts-markvideo API
+# uts-markvideo 历史 API 与新 PRD 迁移说明
 
-This document defines the public plugin API that the native Android and iOS
-recorders should converge on. The current implementation keeps legacy top-level
-options working while new work should use the grouped options below.
+本文档只用于说明历史 `recordWatermarkVideo` / `createWatermarkSample` API 与新内嵌相机 PRD 的迁移关系。新需求、新开发、新验收一律以 `docs/embedded-camera-component-prd.md` 为准。
 
-## Primary API
+## 文档优先级
 
-```ts
-recordWatermarkVideo({
-  watermark: {
-    text: 'Project A',
-    imagePath: '/storage/emulated/0/Pictures/logo.png',
-    x: 0.5,
-    y: 0.78,
-    textColor: '#ffffff',
-    fontSize: 30,
-    textBold: true,
-    imageWidth: 72,
-    imageHeight: 72,
-    imageGap: 18,
-    boxWidth: 0.88,
-    boxHeight: 0.16,
-    backgroundColor: '#00000099',
-    borderRadius: 18,
-    padding: 28
-  },
-  video: {
-    fps: 30,
-    bitrate: 2500000,
-    includeAudio: true
-  },
-  camera: {
-    facing: 'back',
-    previewFit: 'cover',
-    enablePhoto: false
-  },
-  limits: {
-    maxDurationMs: 60000,
-    minDurationMs: 1000
-  },
-  diagnostics: {
-    perfLogging: false
-  },
-  success(res) {
-    console.log(res.tempFilePath)
-  },
-  fail(err) {
-    console.error(err.errCode, err.errMsg)
-  }
-})
-```
+从本阶段开始，仓库文档优先级如下：
 
-## Compatibility
+| 优先级 | 文档 | 定位 |
+|---|---|---|
+| 1 | `docs/embedded-camera-component-prd.md` | Android 和 iOS 共同遵循的唯一主契约。 |
+| 2 | `camera-prototype.html` | 对 PRD 的可视化原型说明。 |
+| 3 | `docs/api.md` | 历史 API 归档和迁移说明，不作为新组件功能清单。 |
 
-The existing MVP call shape remains supported:
+结论：
+
+- 新内嵌水印相机组件只能以 `docs/embedded-camera-component-prd.md` 为准。
+- Android 分支和 iOS 分支历史上的 `docs/api.md`、旧 PRD、旧页面交互都不能覆盖新 PRD。
+- iOS 分支中不属于新 PRD 的旧设置页、旧远程图片 API、旧上图标下文字布局、旧独立原生录制页交互，不进入新组件功能清单。
+- Android 分支中不属于新 PRD 的旧 `enablePhoto` 原生页按钮、旧录制页 grouped options、旧 CPU 管线优化项，也不进入新组件功能清单。
+- 旧 `recordWatermarkVideo` API 只作为迁移参考；后续可以兼容保留，但不得作为业务页面调用新组件的方式。
+
+## 历史已导出的插件 API
+
+当前代码里仍可能存在 MVP 独立原生录制页 API：
 
 ```ts
 recordWatermarkVideo({
   text: 'Project A',
   fps: 30,
-  success(res) {}
+  success(res) {
+    console.log(res.tempFilePath)
+  },
+  fail(err) {
+    console.error(err.errCode, err.errMsg)
+  },
+  complete(res) {}
 })
 ```
 
-When both legacy and grouped options are provided, grouped options win:
+### `recordWatermarkVideo(options)`
 
-- `watermark.text` takes precedence over `text`.
-- `video.fps` takes precedence over `fps`.
-
-## Options
-
-### `watermark`
-
-- `text`: Text burned into each output frame. Empty text falls back to the
-  native default.
-- `imagePath`: Optional local image path or URI for a logo watermark. Android
-  camera recording can burn the image alone, or draw it next to `text` when both
-  are provided.
-- `x` / `y`: Initial watermark center position as ratios from `0` to `1`.
-  Android users can still long-press and drag the watermark preview before
-  recording; the final chosen position is burned into the MP4.
-- `textColor`: CSS-style color string for watermark text. Android accepts
-  `#RRGGBB` and `#RRGGBBAA`.
-- `fontSize`: Text size in output pixels.
-- `textBold`: Whether the text is drawn bold.
-- `imageWidth` / `imageHeight`: Logo size in output pixels. If only one side is
-  provided, Android preserves the source image aspect ratio.
-- `imageGap`: Horizontal gap between logo and text in output pixels.
-- `boxWidth` / `boxHeight`: Watermark box size as ratios of output video width
-  and height.
-- `backgroundColor`: CSS-style background color for the watermark box.
-- `borderRadius`: Corner radius in output pixels.
-- `padding`: Inner padding in output pixels.
-
-Keep these style options flat inside `watermark`. Some UTS Android runtimes pass
-nested objects as `JSONObject` values and cannot construct nested UTS option
-types reliably.
-
-Android camera recording implements text, image logo, mixed logo+text, box
-styling, text styling, logo sizing, and drag-adjusted position. iOS currently
-implements text watermark recording; the shared style fields are accepted by the
-API shape so iOS can add matching rendering without changing callers again.
-
-### `video`
-
-- `width`: Compatibility field for generated samples. Camera recording ignores
-  this field and uses the native preview display size.
-- `height`: Compatibility field for generated samples. Camera recording ignores
-  this field and uses the native preview display size.
-- `fps`: Preferred frame rate. Android camera recording accepts 8-60 and asks
-  the camera for the nearest supported AE FPS range.
-- `bitrate`: Preferred video bitrate in bits per second.
-- `includeAudio`: Whether microphone audio should be recorded.
-
-For camera recording, `fps`, `bitrate`, and `includeAudio` are wired into the
-current native recorders. Width and height are no longer user-tunable for camera
-recording: Android derives the MP4 size from the native preview's display aspect
-ratio and reports the actual output size in the success result.
-
-### `camera`
-
-- `facing`: Preferred camera, `back` or `front`.
-- `previewFit`: Preview display fit, `cover` or `contain`.
-- `enablePhoto`: Android-only switch that shows a native photo button in the
-  recorder. When enabled, captured photos use the same watermark style and are
-  saved to the system gallery.
-
-`facing` is wired into the current native recorders. The current native previews
-use cover-style display. `enablePhoto` is wired on Android; iOS currently
-ignores it.
-
-### `limits`
-
-- `maxDurationMs`: Planned automatic stop limit.
-- `minDurationMs`: Planned minimum valid recording duration.
-
-`maxDurationMs` and `minDurationMs` are wired into the current native recorders.
-The native stop button remains available for manual stop.
-
-### `diagnostics`
-
-- `perfLogging`: Enables tagged native performance logs for APK smoke tests.
-  This should stay off in normal product usage.
-
-## Success Result
+历史导出类型：
 
 ```ts
-{
-  kind?: 'recording' | 'photo',
-  tempFilePath: string,
-  savedFilePath?: string,
-  photoTempFilePaths?: string[],
-  photoSavedFilePaths?: string[],
-  durationMs: number,
-  width: number,
-  height: number,
-  watermarkText: string,
-  stats?: {
-    received: number,
-    droppedBusy: number,
-    droppedFps: number,
-    processed: number,
-    encoded: number
-  }
+type RecordWatermarkVideoOptions = {
+  text?: string
+  fps?: number
+  success?: (res: RecordWatermarkVideoSuccess) => void
+  fail?: (err: MarkVideoFail) => void
+  complete?: (res: any) => void
 }
 ```
 
-`kind` tells the caller whether this success represents a normal recording or a
-photo-only return path. `tempFilePath` points to the recorder's local MP4 file
-whose video frames should already contain the watermark when `kind` is
-`recording`. `savedFilePath` points to the system gallery copy when the platform
-publishes one. On Android, successful recordings are published to the system
-gallery under `Movies/uts-markvideo`, so gallery/video apps can find them. If
-`camera.enablePhoto` is true, Android also returns `photoTempFilePaths` and
-`photoSavedFilePaths`; gallery photos are published under `Pictures/uts-markvideo`.
-`durationMs`, `width`, and `height` describe the actual native output, not merely
-the requested options.
-
-On Android, `stats` reports frames observed during the recording window:
-
-- `received`: camera frames acquired while recording.
-- `droppedBusy`: frames closed because the previous frame was still processing.
-- `droppedFps`: frames skipped by the configured FPS throttle.
-- `processed`: frames that reached bitmap conversion and watermark drawing.
-- `encoded`: frames queued into the video encoder.
-
-## Failure Result
+成功结果：
 
 ```ts
-{
-  errCode: number,
+type RecordWatermarkVideoSuccess = {
+  tempFilePath: string
+  durationMs: number
+  width: number
+  height: number
+  watermarkText: string
+}
+```
+
+失败结果：
+
+```ts
+type MarkVideoFail = {
+  errCode: number
   errMsg: string
 }
 ```
 
-Stable recorder error codes:
+### `createWatermarkSample(options)`
 
-- `1000`: Native environment is unavailable.
-- `1001`: Camera or microphone permission was denied.
-- `1002`: Recording was cancelled.
-- `1003`: Camera device, session, or camera thread is unavailable.
-- `1004`: Recorder start failed.
-- `1005`: Recorder stop or MP4 finalization failed.
-- `1006`: No video frames were recorded.
-- `1007`: Recording is shorter than `limits.minDurationMs`.
-- `1008`: Video encoder or supported YUV format is unavailable.
-- `1009`: Android photo capture or gallery publication failed.
+`createWatermarkSample` 是开发调试辅助能力，不属于新 PRD 的目标功能。
 
-Debug helper error codes:
+```ts
+type CreateWatermarkSampleOptions = {
+  text?: string
+  durationMs?: number
+  width?: number
+  height?: number
+  fps?: number
+  success?: (res: CreateWatermarkSampleSuccess) => void
+  fail?: (err: MarkVideoFail) => void
+  complete?: (res: any) => void
+}
+```
 
-- `1100`: Android debug sample generation failed.
-- `2100`: iOS debug sample generation is unavailable.
+## 分支历史文档处理结论
 
-## Debug API
+远端 `android` 和 `ios` 分支曾经出现过 `docs/api.md`，但它们不是本阶段双端功能清单来源：
 
-`createWatermarkSample` is a development helper. It generates a synthetic MP4 on
-Android and is intentionally unavailable on iOS. Product code should call
-`recordWatermarkVideo`.
+| 来源 | 主要内容 | 处理方式 |
+|---|---|---|
+| `origin/android:docs/api.md` | 扩展了 `recordWatermarkVideo` 的 grouped options，例如 `watermark`、`video`、`camera`、`limits`、`diagnostics` | 归档为旧独立录制页 API 背景，不进入新组件契约。 |
+| `origin/ios:docs/api.md` | 补充 Page 层准备图片资源、远程 Logo API、iOS 当前实现对齐说明 | 归档为旧 iOS 分支背景，其中不符合新 PRD 的内容不保留。 |
+| `origin/ios:docs/prd-watermark-camera-cross-platform.md` | 旧水印相机 PRD，包含独立设置页、远程图片 API、Page 设置页等旧方向 | 废弃为历史文档，不作为本阶段双端功能清单。 |
+| `docs/embedded-camera-component-prd.md` | 定义业务嵌套相机页、原生内嵌组件、统一 service/facade、水印模板字段、事件和错误码 | 新需求的主契约。 |
+
+因此最优解不是把 Android 分支 `api.md` 原样复制到 `main`，也不是让 iOS 分支旧 PRD 覆盖当前 PRD，而是在 `main` 明确：
+
+- Android 和 iOS 都以新 PRD 统筹。
+- 双端功能清单只来自新 PRD。
+- 分支历史文档只作为理解旧实现的材料，不作为验收依据。
+
+## 旧 API 到新组件的迁移边界
+
+旧 API 和新 PRD 的字段不是一一同名：
+
+| 旧 `recordWatermarkVideo` 层 | 新内嵌组件 PRD 层 |
+|---|---|
+| `text` / `watermark.text` | `mainTitleText`，必要时由业务层映射 |
+| `watermark.imagePath` | `imagePath`，但新 PRD 还要求 `imageMimeType`、`imageWidth`、`imageHeight` |
+| `watermark.x` / `watermark.y` | `positionX` / `positionY`，且新 PRD 使用水印框左上角比例坐标 |
+| `watermark.boxWidth` / `watermark.boxHeight` | `boxWidth` / `boxHeight`，但新 PRD 以预览真实图像区域为坐标基准 |
+| `success(res)` / `fail(err)` | service/facade 统一返回 `{ success, errorCode, errorMessage, nativeMessage, data }` |
+
+迁移规则：
+
+- 不要把新 PRD 的 `WatermarkTemplate` 直接塞进旧 `recordWatermarkVideo`。
+- 不要把旧 API 的 `watermark.x/y` 当成新 PRD 的 `positionX/positionY` 直接复用，二者坐标语义不同。
+- 如果要复用旧录制能力支撑新组件，必须在 facade adapter 内显式转换字段，并写测试覆盖转换规则。
+- 对外业务页面只能依赖 PRD 的 service/facade，不应直接调用 Android 或 iOS 分支旧 API。
+- Android/iOS 实现过程中发现旧 API 与新 PRD 冲突时，优先修改 adapter 或新增 facade，不反向修改 PRD 去迁就旧 API。
