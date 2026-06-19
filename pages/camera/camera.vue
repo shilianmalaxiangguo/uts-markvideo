@@ -1,17 +1,17 @@
 <template>
   <view class="cameraPage">
-    <view class="topBar">
-      <view class="templateSummary">
+    <cover-view class="topBar">
+      <cover-view class="templateSummary">
         <text class="summaryLabel">当前模板</text>
         <text class="summaryTitle">{{ currentTemplate.templateName }}</text>
-      </view>
-      <view class="flashButton" :class="{ isActive: flashEnabled }" @tap="toggleFlash">
+      </cover-view>
+      <cover-view class="flashButton" :class="{ isActive: flashEnabled }" @tap="toggleFlash">
         <text class="flashText">{{ flashEnabled ? '闪光开' : '闪光关' }}</text>
-      </view>
-    </view>
+      </cover-view>
+    </cover-view>
 
     <view class="cameraStage">
-      <UtsMarkvideoCamera
+      <uts-markvideo-camera
         id="embeddedCamera"
         ref="embeddedCamera"
         class="nativePreview"
@@ -34,52 +34,74 @@
       </cover-view>
     </view>
 
-    <view class="bottomPanel">
-      <view class="modeTabs">
-        <view
-          class="modeButton"
-          :class="{ isSelected: mode === 'video' }"
-          @tap="mode = 'video'"
-        >
+    <cover-view class="bottomPanel">
+      <cover-view class="modeTabs">
+        <cover-view class="modeButton" :class="{ isSelected: mode === 'video' }" @tap="mode = 'video'">
           <text>视频</text>
-        </view>
-        <view
-          class="modeButton"
-          :class="{ isSelected: mode === 'photo' }"
-          @tap="mode = 'photo'"
-        >
+        </cover-view>
+        <cover-view class="modeButton" :class="{ isSelected: mode === 'photo' }" @tap="mode = 'photo'">
           <text>照片</text>
-        </view>
-      </view>
+        </cover-view>
+      </cover-view>
 
-      <view class="controls">
-        <view class="thumb">
+      <cover-view class="controls">
+        <cover-view class="thumb">
           <text class="thumbText">{{ lastResultLabel }}</text>
-        </view>
-        <view
-          class="shutter"
-          :class="shutterClass"
-          @tap="pressShutter"
-        >
-          <view class="shutterCore"></view>
-        </view>
-        <view class="templateButton" @tap="openTemplateSheet">
+        </cover-view>
+        <cover-view class="shutter" :class="shutterClass" @tap="pressShutter">
+          <cover-view class="shutterCore"></cover-view>
+        </cover-view>
+        <cover-view class="templateButton" @tap="openTemplateSheet">
           <text class="templateButtonText">印</text>
-        </view>
-      </view>
+        </cover-view>
+      </cover-view>
       <text class="statusText">{{ status }}</text>
-    </view>
+    </cover-view>
+
+    <cover-view v-if="templateSheetOpen" class="sheetMask" @tap="closeTemplateSheet">
+      <cover-view class="templatePanel">
+        <cover-view class="sheetHeader">
+          <text class="sheetTitle">选择水印模板</text>
+          <cover-view class="sheetClose" @tap="closeTemplateSheet">
+            <text class="sheetCloseText">×</text>
+          </cover-view>
+        </cover-view>
+        <cover-view class="templateList">
+          <cover-view
+            v-for="template in templates"
+            :key="template.templateId"
+            class="templateOption"
+            :class="{ isSelected: currentTemplate.templateId === template.templateId }"
+            @tap="selectTemplate(template)"
+          >
+            <cover-view class="templatePreview">
+              <cover-image
+                v-if="template.imagePath"
+                class="templatePreviewImage"
+                :src="template.imagePath"
+                mode="aspectFit"
+              />
+              <cover-view v-else class="templatePreviewText">{{ templatePreviewInitial(template) }}</cover-view>
+            </cover-view>
+            <cover-view class="templateCopy">
+              <text class="optionTitle">{{ template.templateName }}</text>
+              <text class="optionText">{{ template.mainTitleText }}</text>
+              <text v-if="template.subtitleText" class="optionSubtext">{{ template.subtitleText }}</text>
+            </cover-view>
+            <cover-view class="templateCheck" :class="{ isSelected: currentTemplate.templateId === template.templateId }">
+              <text class="templateCheckText">✓</text>
+            </cover-view>
+          </cover-view>
+        </cover-view>
+      </cover-view>
+    </cover-view>
   </view>
 </template>
 
 <script>
-import UtsMarkvideoCamera from '@/uni_modules/uts-markvideo/utssdk/app-ios/index.vue'
 import { createCameraService, DEFAULT_WATERMARK_TEMPLATES } from '../index/cameraService'
 
 export default {
-  components: {
-    UtsMarkvideoCamera
-  },
   data() {
     return {
       service: null,
@@ -94,6 +116,7 @@ export default {
       mountingCamera: false,
       pendingNativeViewRetry: false,
       cameraDestroyed: false,
+      templateSheetOpen: false,
       lastResultLabel: '暂无',
       status: '相机准备中',
       zoomOptions: [
@@ -172,6 +195,7 @@ export default {
           if (this.cameraDestroyed) {
             return
           }
+          this.status = '等待原生相机组件加载'
           const nativeCamera = await this.waitForNativeCamera()
           if (!nativeCamera) {
             this.status = '9001: 原生相机组件不可用'
@@ -220,7 +244,8 @@ export default {
     },
     hasNativeCameraMethods(nativeCamera) {
       return !!nativeCamera &&
-        typeof nativeCamera.mountCamera === 'function'
+        typeof nativeCamera.mountCamera === 'function' &&
+        typeof nativeCamera.isNativeViewLoaded === 'function'
     },
     resolveNativeCamera() {
       const refCamera = this.$refs.embeddedCamera
@@ -238,7 +263,7 @@ export default {
       return new Promise((resolve) => {
         const poll = () => {
           const nativeCamera = this.resolveNativeCamera()
-          if (this.hasNativeCameraMethods(nativeCamera)) {
+          if (this.hasNativeCameraMethods(nativeCamera) && nativeCamera.isNativeViewLoaded()) {
             resolve(nativeCamera)
             return
           }
@@ -253,24 +278,17 @@ export default {
       })
     },
     openTemplateSheet() {
-      const itemList = this.templates.map((template) => {
-        return `${template.templateName}  ${template.mainTitleText}`
-      })
-      uni.showActionSheet({
-        itemList,
-        success: async (res) => {
-          const template = this.templates[res.tapIndex]
-          if (template) {
-            await this.applyTemplate(template)
-          }
-        },
-        fail: (error) => {
-          const message = error?.errMsg || ''
-          if (message && !message.includes('cancel')) {
-            this.status = `9001: ${message}`
-          }
-        }
-      })
+      this.templateSheetOpen = true
+    },
+    closeTemplateSheet() {
+      this.templateSheetOpen = false
+    },
+    async selectTemplate(template) {
+      await this.applyTemplate(template)
+    },
+    templatePreviewInitial(template) {
+      const text = template.mainTitleText || template.templateName || '印'
+      return text.slice(0, 1)
     },
     isPermissionPending(result) {
       return result &&
@@ -346,6 +364,7 @@ export default {
     async applyTemplate(template) {
       const previousTemplate = this.currentTemplate
       this.currentTemplate = template
+      this.templateSheetOpen = false
       if (!this.cameraReady) {
         this.status = '水印模板已更新'
         return
@@ -405,14 +424,24 @@ export default {
 
 <style>
 .cameraPage {
-  min-height: 100vh;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
   background: #101715;
   color: #f7faf8;
 }
 
 .topBar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  z-index: 12;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -427,7 +456,9 @@ export default {
 }
 
 .summaryLabel,
-.statusText {
+.statusText,
+.optionText,
+.optionSubtext {
   color: rgba(247, 250, 248, 0.68);
   font-size: 12px;
   line-height: 18px;
@@ -467,17 +498,25 @@ export default {
 }
 
 .cameraStage {
-  position: relative;
-  height: 560px;
-  min-height: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   background: linear-gradient(180deg, #15211c, #0d1210);
 }
 
 .nativePreview {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
-  height: 560px;
-  min-height: 560px;
+  height: 100%;
 }
 
 .zoomRail {
@@ -517,7 +556,12 @@ export default {
 }
 
 .bottomPanel {
-  padding: 14px 18px 18px;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 12;
+  padding: 14px 18px calc(18px + env(safe-area-inset-bottom));
   background: rgba(3, 5, 5, 0.78);
 }
 
@@ -565,25 +609,26 @@ export default {
 
 .shutter {
   justify-self: center;
-  width: 82px;
-  height: 82px;
+  width: 86px;
+  height: 86px;
   display: grid;
   place-items: center;
   padding: 0;
   box-sizing: border-box;
-  border: 5px solid rgba(255, 255, 255, 0.78);
+  border: 2px solid rgba(255, 255, 255, 0.82);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.32) inset,
-    0 0 18px rgba(255, 255, 255, 0.18);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 0 12px rgba(255, 255, 255, 0.12),
+    0 6px 18px rgba(0, 0, 0, 0.22);
 }
 
 .shutterCore {
-  width: 72px;
-  height: 72px;
+  width: 82px;
+  height: 82px;
   border-radius: 50%;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .shutter.isVideo .shutterCore {
@@ -591,9 +636,9 @@ export default {
 }
 
 .shutter.isRecording .shutterCore {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   background: #e54848;
 }
 
@@ -620,5 +665,155 @@ export default {
   display: block;
   margin-top: 12px;
   text-align: center;
+}
+
+.sheetMask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(18px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.34);
+}
+
+.templatePanel {
+  width: 100%;
+  max-height: 60vh;
+  padding: 16px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(247, 250, 248, 0.96);
+  color: #101715;
+}
+
+.sheetHeader {
+  min-height: 38px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sheetTitle {
+  flex: 1;
+  min-width: 0;
+  color: #101715;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.sheetClose {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid rgba(16, 23, 21, 0.12);
+  border-radius: 15px;
+  background: rgba(16, 23, 21, 0.08);
+  color: #101715;
+}
+
+.sheetCloseText {
+  font-size: 18px;
+  line-height: 18px;
+  font-weight: 700;
+}
+
+.templateList {
+  display: grid;
+  gap: 10px;
+}
+
+.templateOption {
+  width: 100%;
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 54px 1fr 24px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #101715;
+}
+
+.templateOption.isSelected {
+  border-color: #126fdb;
+  background: #edf5ff;
+}
+
+.templatePreview {
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #e9f0ed;
+}
+
+.templatePreviewImage {
+  width: 40px;
+  height: 40px;
+}
+
+.templatePreviewText {
+  color: #101715;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.templateCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.optionTitle {
+  color: #101715;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 21px;
+}
+
+.optionText,
+.optionSubtext {
+  color: #56616d;
+}
+
+.templateCheck {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(16, 23, 21, 0.08);
+  color: transparent;
+}
+
+.templateCheck.isSelected {
+  background: #126fdb;
+  color: #ffffff;
+}
+
+.templateCheckText {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 20px;
 }
 </style>
