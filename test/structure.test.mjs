@@ -414,6 +414,11 @@ test('Android embedded native view implements PRD preview, media, watermark, and
   assert.match(nativeView, /emit\("recorddone", data\)/);
   assert.match(nativeView, /emitError\("1501"/);
   assert.match(nativeView, /REQUEST_AUDIO_PERMISSION/);
+  assert.match(nativeView, /cameraPermissionPending/);
+  assert.match(nativeView, /Camera permission request is pending\./);
+  assert.match(nativeView, /Microphone permission request is pending\./);
+  assert.match(nativeView, /private fun permissionWasDenied\(permission: String, requestedAtMs: Long\): Boolean/);
+  assert.match(nativeView, /shouldShowRequestPermissionRationale\(permission\)/);
   assert.match(nativeView, /failAndEmit\("1002"/);
   assert.match(nativeView, /return failAndEmit\("1403"/);
   assert.match(nativeView, /TemplateParseResult\.imageUnreadable/);

@@ -102,6 +102,7 @@ export default {
       flashEnabled: false,
       recording: false,
       templateSheetOpen: false,
+      cameraMountOptions: null,
       lastResultLabel: '暂无',
       status: '相机准备中',
       zoomOptions: [
@@ -120,6 +121,15 @@ export default {
     }
   },
   mounted() {
+    this.cameraMountOptions = {
+      nativeCamera: this.$refs.embeddedCamera,
+      containerId: 'embeddedCamera',
+      previewWidth: 390,
+      previewHeight: 560,
+      cameraFacing: 'back',
+      zoom: '1x',
+      flashEnabled: false
+    }
     const payload = uni.getStorageSync('embedded-camera-payload') || {}
     if (Array.isArray(payload.templates) && payload.templates.length > 0) {
       this.templates = payload.templates
@@ -162,15 +172,15 @@ export default {
   },
   methods: {
     async bootstrapCamera() {
-      await this.service.mountCamera({
-        nativeCamera: this.$refs.embeddedCamera,
-        containerId: 'embeddedCamera',
-        previewWidth: 390,
-        previewHeight: 560,
-        cameraFacing: 'back',
-        zoom: '1x',
-        flashEnabled: false
-      })
+      const result = await this.service.mountCamera(this.cameraMountOptions)
+      const nativeMessage = result.nativeMessage || ''
+      if (!result.success && result.errorCode === '1104' && nativeMessage.includes('permission request is pending')) {
+        setTimeout(() => {
+          this.bootstrapCamera()
+        }, 600)
+        return
+      }
+      if (!result.success) return
       await this.service.setWatermark(this.currentTemplate)
     },
     async applyTemplate(template) {

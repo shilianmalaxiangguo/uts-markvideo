@@ -35,6 +35,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -80,6 +81,12 @@ class MarkVideoEmbeddedCameraView(context: Context) : FrameLayout(context) {
     @Volatile private var openingCamera = false
     @Volatile private var recording = false
     @Volatile private var stoppingRecording = false
+    private var cameraPermissionRequested = false
+    private var cameraPermissionPending = false
+    private var cameraPermissionRequestedAtMs = 0L
+    private var audioPermissionRequested = false
+    private var audioPermissionPending = false
+    private var audioPermissionRequestedAtMs = 0L
     private var readyWaitLatch: CountDownLatch? = null
     private var readyWaitError: String? = null
     private var currentFacing = "back"
@@ -160,9 +167,21 @@ class MarkVideoEmbeddedCameraView(context: Context) : FrameLayout(context) {
             previewHeight = options.optInt("previewHeight", height)
 
             if (!hasPermission(Manifest.permission.CAMERA)) {
-                requestPermission(Manifest.permission.CAMERA, REQUEST_CAMERA_PERMISSION)
-                CameraOpenSetup(fail("1001", "相机权限被拒绝", "Camera permission is not granted."), null)
+                if (cameraPermissionPending && permissionWasDenied(Manifest.permission.CAMERA, cameraPermissionRequestedAtMs)) {
+                    cameraPermissionPending = false
+                    CameraOpenSetup(fail("1001", "相机权限被拒绝", "Camera permission is not granted."), null)
+                } else {
+                    if (!cameraPermissionRequested || !cameraPermissionPending) {
+                        cameraPermissionRequested = true
+                        cameraPermissionPending = true
+                        cameraPermissionRequestedAtMs = SystemClock.elapsedRealtime()
+                        requestPermission(Manifest.permission.CAMERA, REQUEST_CAMERA_PERMISSION)
+                    }
+                    CameraOpenSetup(fail("1104", "相机未挂载或未就绪", "Camera permission request is pending."), null)
+                }
             } else {
+                cameraPermissionRequested = false
+                cameraPermissionPending = false
                 startCameraThread()
                 val readyLatch = beginCameraReadyWait()
                 openCameraWhenPossible()
@@ -284,9 +303,21 @@ class MarkVideoEmbeddedCameraView(context: Context) : FrameLayout(context) {
             } else if (recording) {
                 RecordStartSetup(failAndEmit("1403", "当前状态不允许执行该操作", "duplicate startRecord"), null, null)
             } else if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
-                requestPermission(Manifest.permission.RECORD_AUDIO, REQUEST_AUDIO_PERMISSION)
-                RecordStartSetup(failAndEmit("1002", "麦克风权限被拒绝", "Record audio permission is not granted."), null, null)
+                if (audioPermissionPending && permissionWasDenied(Manifest.permission.RECORD_AUDIO, audioPermissionRequestedAtMs)) {
+                    audioPermissionPending = false
+                    RecordStartSetup(failAndEmit("1002", "麦克风权限被拒绝", "Record audio permission is not granted."), null, null)
+                } else {
+                    if (!audioPermissionRequested || !audioPermissionPending) {
+                        audioPermissionRequested = true
+                        audioPermissionPending = true
+                        audioPermissionRequestedAtMs = SystemClock.elapsedRealtime()
+                        requestPermission(Manifest.permission.RECORD_AUDIO, REQUEST_AUDIO_PERMISSION)
+                    }
+                    RecordStartSetup(failAndEmit("1104", "相机未挂载或未就绪", "Microphone permission request is pending."), null, null)
+                }
             } else {
+                audioPermissionRequested = false
+                audioPermissionPending = false
                 recordingTemplate = mediaTemplate(optionsJson, currentTemplate)
                 recordingSize = chooseOutputSizeFromPreview()
                 outputFile = File(context.cacheDir, "uts-markvideo-${System.currentTimeMillis()}.mp4")
@@ -1400,6 +1431,13 @@ class MarkVideoEmbeddedCameraView(context: Context) : FrameLayout(context) {
         }
     }
 
+    private fun permissionWasDenied(permission: String, requestedAtMs: Long): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        if (SystemClock.elapsedRealtime() - requestedAtMs < PERMISSION_DECISION_GRACE_MS) return false
+        val activity = context.findActivity() ?: return false
+        return activity.shouldShowRequestPermissionRationale(permission)
+    }
+
     private fun Context.findActivity(): Activity? {
         var current: Context? = this
         while (current is ContextWrapper) {
@@ -2000,6 +2038,7 @@ class MarkVideoEmbeddedCameraView(context: Context) : FrameLayout(context) {
         const val DEFAULT_BOX_BACKGROUND_COLOR = "rgba(255,255,255,0.78)"
         const val REQUEST_CAMERA_PERMISSION = 6201
         const val REQUEST_AUDIO_PERMISSION = 6202
+        const val PERMISSION_DECISION_GRACE_MS = 1_200L
         const val DEFAULT_FPS = 24
         const val MAX_RECORDING_LONG_EDGE = 960
         const val MAX_RECORDING_PIXELS = 720 * 960
