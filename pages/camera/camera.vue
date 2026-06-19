@@ -101,8 +101,8 @@ export default {
       zoom: '1x',
       flashEnabled: false,
       recording: false,
+      cameraReady: false,
       templateSheetOpen: false,
-      cameraMountOptions: null,
       lastResultLabel: '暂无',
       status: '相机准备中',
       zoomOptions: [
@@ -121,15 +121,6 @@ export default {
     }
   },
   mounted() {
-    this.cameraMountOptions = {
-      nativeCamera: this.$refs.embeddedCamera,
-      containerId: 'embeddedCamera',
-      previewWidth: 390,
-      previewHeight: 560,
-      cameraFacing: 'back',
-      zoom: '1x',
-      flashEnabled: false
-    }
     const payload = uni.getStorageSync('embedded-camera-payload') || {}
     if (Array.isArray(payload.templates) && payload.templates.length > 0) {
       this.templates = payload.templates
@@ -165,23 +156,99 @@ export default {
         this.status = `${payload.errorCode}: ${payload.errorMessage}`
       }
     })
-    this.bootstrapCamera()
+    this.$nextTick(() => {
+      this.bootstrapCamera()
+    })
   },
   beforeUnmount() {
     this.service?.destroyCamera()
   },
   methods: {
     async bootstrapCamera() {
-      const result = await this.service.mountCamera(this.cameraMountOptions)
-      const nativeMessage = result.nativeMessage || ''
-      if (!result.success && result.errorCode === '1104' && nativeMessage.includes('permission request is pending')) {
-        setTimeout(() => {
-          this.bootstrapCamera()
-        }, 600)
+      this.cameraReady = false
+      const maxNativeViewAttempts = 18
+      let nativeViewAttempts = 0
+      while (true) {
+        const nativeCamera = await this.waitForNativeCamera()
+        if (!nativeCamera) {
+          this.status = '9001: 原生相机组件不可用'
+          return
+        }
+        const result = await this.service.mountCamera({
+          nativeCamera,
+          containerId: 'embeddedCamera',
+          previewWidth: 390,
+          previewHeight: 560,
+          cameraFacing: 'back',
+          zoom: '1x',
+          flashEnabled: false
+        })
+        if (result.success) {
+          this.cameraReady = true
+          await this.service.setWatermark(this.currentTemplate)
+          return
+        }
+        if (this.isPermissionPending(result)) {
+          await this.wait(600)
+          continue
+        }
+        if (this.isNativeViewLoading(result) && nativeViewAttempts < maxNativeViewAttempts - 1) {
+          nativeViewAttempts += 1
+          await this.wait(160)
+          continue
+        }
         return
       }
-      if (!result.success) return
-      await this.service.setWatermark(this.currentTemplate)
+    },
+    isPermissionPending(result) {
+      return result &&
+        result.errorCode === '1104' &&
+        typeof result.nativeMessage === 'string' &&
+        result.nativeMessage.includes('permission request is pending')
+    },
+    isNativeViewLoading(result) {
+      return result &&
+        result.errorCode === '9001' &&
+        typeof result.nativeMessage === 'string' &&
+        result.nativeMessage.includes('MarkVideoEmbeddedCameraView is not loaded')
+    },
+    wait(ms) {
+      return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+      })
+    },
+    hasNativeCameraMethods(nativeCamera) {
+      return !!nativeCamera &&
+        typeof nativeCamera.mountCamera === 'function'
+    },
+    waitForNativeCamera() {
+      const maxAttempts = 30
+      let attempts = 0
+      return new Promise((resolve) => {
+        const poll = () => {
+          const nativeCamera = this.$refs.embeddedCamera
+          if (this.hasNativeCameraMethods(nativeCamera)) {
+            resolve(nativeCamera)
+            return
+          }
+          attempts += 1
+          if (attempts >= maxAttempts) {
+            resolve(null)
+            return
+          }
+          setTimeout(poll, 100)
+        }
+        poll()
+      })
+    },
+    ensureCameraReady() {
+      if (this.cameraReady) {
+        return true
+      }
+      if (!/^\d{4}:/.test(this.status)) {
+        this.status = '相机未就绪，请稍候'
+      }
+      return false
     },
     async applyTemplate(template) {
       const result = await this.service.setWatermark(template)
@@ -192,9 +259,15 @@ export default {
       }
     },
     async toggleFlash() {
+      if (!this.ensureCameraReady()) {
+        return
+      }
       await this.service.switchFlash(!this.flashEnabled)
     },
     async selectZoom(value) {
+      if (!this.ensureCameraReady()) {
+        return
+      }
       await this.service.setZoom(value)
     },
     handleNativeWatermarkPositionChange(payload) {
@@ -212,6 +285,9 @@ export default {
       this.status = `${payload.errorCode}: ${payload.errorMessage}`
     },
     async pressShutter() {
+      if (!this.ensureCameraReady()) {
+        return
+      }
       if (this.mode === 'photo') {
         await this.service.takePhoto()
         return

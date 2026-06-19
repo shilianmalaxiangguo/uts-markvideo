@@ -90,7 +90,17 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /ref="embeddedCamera"/);
   assert.match(cameraPage, /createCameraService/);
   assert.match(cameraPage, /uni\.getStorageSync\('embedded-camera-payload'\)/);
-  assert.match(cameraPage, /nativeCamera: this\.\$refs\.embeddedCamera/);
+  assert.match(cameraPage, /this\.\$nextTick\(\(\) => \{[\s\S]*this\.bootstrapCamera\(\)/);
+  assert.match(cameraPage, /const nativeCamera = await this\.waitForNativeCamera\(\)/);
+  assert.match(cameraPage, /typeof nativeCamera\.mountCamera === 'function'/);
+  assert.match(cameraPage, /cameraReady: false/);
+  assert.match(cameraPage, /this\.cameraReady = true/);
+  assert.match(cameraPage, /isPermissionPending\(result\)/);
+  assert.match(cameraPage, /isNativeViewLoading\(result\)/);
+  assert.match(cameraPage, /ensureCameraReady\(\) \{[\s\S]*if \(this\.cameraReady\) \{[\s\S]*return true[\s\S]*if \(!\/\^\\d\{4\}:\//);
+  assert.match(cameraPage, /if \(!this\.ensureCameraReady\(\)\) \{[\s\S]*return[\s\S]*await this\.service\.takePhoto/);
+  assert.doesNotMatch(cameraPage, /nativeCamera: this\.\$refs\.embeddedCamera/);
+  assert.doesNotMatch(cameraPage, /uni\.getElementById\('embeddedCamera'\)/);
   assert.match(cameraPage, /onCameraReady/);
   assert.match(cameraPage, /onPhotoDone/);
   assert.match(cameraPage, /onRecordStart/);
