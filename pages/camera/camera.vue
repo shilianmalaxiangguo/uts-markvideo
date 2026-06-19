@@ -20,17 +20,17 @@
         @nativeerror="handleNativeError"
       />
 
-      <view class="zoomRail">
-        <view
+      <cover-view class="zoomRail">
+        <cover-view
           v-for="item in zoomOptions"
           :key="item.value"
           class="zoomButton"
           :class="{ isSelected: zoom === item.value }"
           @tap="selectZoom(item.value)"
         >
-          <text class="zoomText">{{ item.label }}</text>
-        </view>
-      </view>
+          <cover-view class="zoomText">{{ item.label }}</cover-view>
+        </cover-view>
+      </cover-view>
     </view>
 
     <view class="bottomPanel">
@@ -69,26 +69,24 @@
       <text class="statusText">{{ status }}</text>
     </view>
 
-    <view v-if="templateSheetOpen" class="sheetMask" @tap="closeTemplateSheet">
-      <view class="templateSheet" @tap.stop>
-        <view class="sheetHeader">
-          <text class="sheetTitle">选择水印模板</text>
-          <view class="sheetClose" @tap.stop="closeTemplateSheet">
-            <text>关闭</text>
-          </view>
-        </view>
-        <view
+    <cover-view v-if="templateSheetOpen" class="sheetMask" @tap="closeTemplateSheet">
+      <cover-view class="templateSheet" @tap.stop>
+        <cover-view class="sheetHeader">
+          <cover-view class="sheetTitle">选择水印模板</cover-view>
+          <cover-view class="sheetClose" @tap.stop="closeTemplateSheet">关闭</cover-view>
+        </cover-view>
+        <cover-view
           v-for="template in templates"
           :key="template.templateId"
           class="templateOption"
           :class="{ isSelected: currentTemplate.templateId === template.templateId }"
           @tap.stop="applyTemplate(template)"
         >
-          <text class="optionTitle">{{ template.templateName }}</text>
-          <text class="optionText">{{ template.mainTitleText }}</text>
-        </view>
-      </view>
-    </view>
+          <cover-view class="optionTitle">{{ template.templateName }}</cover-view>
+          <cover-view class="optionText">{{ template.mainTitleText }}</cover-view>
+        </cover-view>
+      </cover-view>
+    </cover-view>
   </view>
 </template>
 
@@ -168,29 +166,77 @@ export default {
   },
   methods: {
     async bootstrapCamera() {
-      const nativeCamera = await this.waitForNativeCamera()
-      if (!nativeCamera) {
-        this.status = '9001: 原生相机组件不可用'
+      const maxMountAttempts = 18
+      for (let attempt = 0; attempt < maxMountAttempts; attempt += 1) {
+        const nativeCamera = await this.waitForNativeCamera()
+        if (!nativeCamera) {
+          this.status = '9001: 原生相机组件不可用'
+          return
+        }
+        const mountResult = await this.service.mountCamera({
+          nativeCamera,
+          containerId: 'embeddedCamera',
+          previewWidth: 390,
+          previewHeight: 560,
+          cameraFacing: 'back',
+          zoom: '1x',
+          flashEnabled: false
+        })
+        if (mountResult.success) {
+          await this.service.setWatermark(this.currentTemplate)
+          return
+        }
+        if (this.isNativeViewLoading(mountResult) && attempt < maxMountAttempts - 1) {
+          await this.wait(160)
+          continue
+        }
         return
       }
-      await this.service.mountCamera({
-        nativeCamera,
-        containerId: 'embeddedCamera',
-        previewWidth: 390,
-        previewHeight: 560,
-        cameraFacing: 'back',
-        zoom: '1x',
-        flashEnabled: false
+    },
+    isNativeViewLoading(result) {
+      return result &&
+        (result.errorCode === '9001' || result.errorCode === '1104') &&
+        typeof result.nativeMessage === 'string' &&
+        (
+          result.nativeMessage.includes('MarkVideoEmbeddedCameraView is not loaded') ||
+          result.nativeMessage.includes('permission request is pending')
+        )
+    },
+    wait(ms) {
+      return new Promise((resolve) => {
+        setTimeout(resolve, ms)
       })
-      await this.service.setWatermark(this.currentTemplate)
+    },
+    hasNativeCameraMethods(nativeCamera) {
+      return !!nativeCamera &&
+        typeof nativeCamera.mountCamera === 'function' &&
+        typeof nativeCamera.setWatermark === 'function' &&
+        typeof nativeCamera.setZoom === 'function'
+    },
+    resolveNativeCamera() {
+      const refCamera = this.$refs.embeddedCamera
+      if (this.hasNativeCameraMethods(refCamera)) {
+        return refCamera
+      }
+      if (typeof uni.getElementById === 'function') {
+        try {
+          const nativeCamera = uni.getElementById('embeddedCamera')
+          if (this.hasNativeCameraMethods(nativeCamera)) {
+            return nativeCamera
+          }
+        } catch (_error) {
+          return null
+        }
+      }
+      return null
     },
     waitForNativeCamera() {
-      const maxAttempts = 12
+      const maxAttempts = 30
       let attempts = 0
       return new Promise((resolve) => {
         const poll = () => {
-          const nativeCamera = this.$refs.embeddedCamera
-          if (nativeCamera && typeof nativeCamera.mountCamera === 'function') {
+          const nativeCamera = this.resolveNativeCamera()
+          if (this.hasNativeCameraMethods(nativeCamera)) {
             resolve(nativeCamera)
             return
           }
@@ -199,7 +245,7 @@ export default {
             resolve(null)
             return
           }
-          setTimeout(poll, 50)
+          setTimeout(poll, 100)
         }
         poll()
       })
@@ -319,6 +365,7 @@ export default {
 
 .cameraStage {
   position: relative;
+  height: 560px;
   min-height: 0;
   overflow: hidden;
   background: linear-gradient(180deg, #15211c, #0d1210);
@@ -326,8 +373,8 @@ export default {
 
 .nativePreview {
   width: 100%;
-  height: 100%;
-  min-height: 520px;
+  height: 560px;
+  min-height: 560px;
 }
 
 .zoomRail {
@@ -335,8 +382,8 @@ export default {
   z-index: 3;
   right: 14px;
   top: 50%;
-  display: grid;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
   transform: translateY(-50%);
 }
 
@@ -351,6 +398,10 @@ export default {
   border-radius: 50%;
   background: rgba(12, 18, 16, 0.64);
   color: #f7faf8;
+}
+
+.zoomButton + .zoomButton {
+  margin-top: 10px;
 }
 
 .zoomText {
@@ -482,6 +533,7 @@ export default {
 .templateSheet {
   width: 100%;
   padding: 18px;
+  box-sizing: border-box;
   border-radius: 8px 8px 0 0;
   background: #ffffff;
   color: #16211d;

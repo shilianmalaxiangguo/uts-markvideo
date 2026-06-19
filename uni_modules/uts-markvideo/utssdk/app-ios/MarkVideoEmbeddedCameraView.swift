@@ -51,23 +51,31 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
     public override init(frame: CGRect) {
         previewLayer = AVCaptureVideoPreviewLayer(session: session)
         super.init(frame: frame)
-        captureQueue.setSpecific(key: Self.captureQueueKey, value: true)
-        backgroundColor = .black
-        previewLayer.videoGravity = .resizeAspectFill
-        layer.addSublayer(previewLayer)
-
-        watermarkView.isHidden = true
-        addSubview(watermarkView)
-        let drag = UILongPressGestureRecognizer(target: self, action: #selector(handleWatermarkDrag(_:)))
-        drag.minimumPressDuration = 0.18
-        drag.delegate = self
-        watermarkView.addGestureRecognizer(drag)
+        setupView()
     }
 
     required init?(coder: NSCoder) {
         previewLayer = AVCaptureVideoPreviewLayer(session: session)
         super.init(coder: coder)
+        setupView()
+    }
+
+    private func setupView() {
         captureQueue.setSpecific(key: Self.captureQueueKey, value: true)
+        backgroundColor = .black
+        previewLayer.videoGravity = .resizeAspectFill
+        if previewLayer.superlayer == nil {
+            layer.addSublayer(previewLayer)
+        }
+
+        watermarkView.isHidden = true
+        if watermarkView.superview == nil {
+            addSubview(watermarkView)
+        }
+        let drag = UILongPressGestureRecognizer(target: self, action: #selector(handleWatermarkDrag(_:)))
+        drag.minimumPressDuration = 0.18
+        drag.delegate = self
+        watermarkView.addGestureRecognizer(drag)
     }
 
     deinit {

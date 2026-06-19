@@ -90,9 +90,16 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /ref="embeddedCamera"/);
   assert.match(cameraPage, /createCameraService/);
   assert.match(cameraPage, /uni\.getStorageSync\('embedded-camera-payload'\)/);
+  assert.match(cameraPage, /resolveNativeCamera\(\)/);
+  assert.match(cameraPage, /uni\.getElementById\('embeddedCamera'\)/);
+  assert.match(cameraPage, /hasNativeCameraMethods\(nativeCamera\)/);
   assert.match(cameraPage, /const nativeCamera = await this\.waitForNativeCamera\(\)/);
   assert.match(cameraPage, /nativeCamera,/);
   assert.match(cameraPage, /typeof nativeCamera\.mountCamera === 'function'/);
+  assert.match(cameraPage, /const mountResult = await this\.service\.mountCamera/);
+  assert.match(cameraPage, /isNativeViewLoading\(mountResult\)/);
+  assert.match(cameraPage, /await this\.wait\(160\)/);
+  assert.match(cameraPage, /continue/);
   assert.match(cameraPage, /onCameraReady/);
   assert.match(cameraPage, /onPhotoDone/);
   assert.match(cameraPage, /onRecordStart/);
@@ -104,6 +111,10 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /templateSheetOpen/);
   assert.match(cameraPage, /@tap="openTemplateSheet"/);
   assert.match(cameraPage, /@tap\.stop="applyTemplate\(template\)"/);
+  assert.match(cameraPage, /<cover-view[\s\S]*class="zoomRail"/);
+  assert.match(cameraPage, /<cover-view v-if="templateSheetOpen" class="sheetMask"/);
+  assert.doesNotMatch(cameraPage, /<view class="zoomRail"/);
+  assert.doesNotMatch(cameraPage, /<view v-if="templateSheetOpen" class="sheetMask"/);
   assert.match(cameraPage, /视频/);
   assert.match(cameraPage, /照片/);
   assert.match(cameraPage, /广角/);
@@ -111,6 +122,8 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /\.flashButton \{[\s\S]*border: 1px solid[\s\S]*border-radius: 19px/);
   assert.match(cameraPage, /\.zoomButton \{[\s\S]*width: 54px[\s\S]*height: 54px[\s\S]*border-radius: 50%/);
   assert.match(cameraPage, /\.templateButton \{[\s\S]*width: 54px[\s\S]*height: 54px[\s\S]*border-radius: 50%/);
+  assert.match(cameraPage, /\.cameraStage \{[\s\S]*height: 560px/);
+  assert.match(cameraPage, /\.nativePreview \{[\s\S]*height: 560px[\s\S]*min-height: 560px/);
   assert.doesNotMatch(cameraPage, /<button[^>]*class="flashButton"/);
   assert.doesNotMatch(cameraPage, /<button[^>]*class="zoomButton"/);
   assert.doesNotMatch(cameraPage, /<button[^>]*class="templateButton"/);
@@ -414,6 +427,9 @@ test('iOS embedded native view implements PRD preview, media, watermark, and eve
   assert.match(nativeView, /public final class MarkVideoEmbeddedCameraView: UIView/);
   assert.match(nativeView, /AVCaptureSession/);
   assert.match(nativeView, /AVCaptureVideoPreviewLayer/);
+  assert.match(nativeView, /public override init\(frame: CGRect\) \{[\s\S]*setupView\(\)/);
+  assert.match(nativeView, /required init\?\(coder: NSCoder\) \{[\s\S]*setupView\(\)/);
+  assert.match(nativeView, /private func setupView\(\) \{[\s\S]*layer\.addSublayer\(previewLayer\)[\s\S]*addSubview\(watermarkView\)[\s\S]*watermarkView\.addGestureRecognizer\(drag\)/);
   assert.match(nativeView, /AVCaptureVideoDataOutput/);
   assert.match(nativeView, /AVCaptureAudioDataOutput/);
   assert.match(nativeView, /AVAssetWriter/);
