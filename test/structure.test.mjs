@@ -343,6 +343,11 @@ test('Android native component entry owns the PRD method surface', async () => {
   assert.match(component, /this\.emitNativeEvent\(eventName, parseObject\(payloadText\)\)/);
   assert.match(component, /this\.\$emit\('watermarkpositionchange', payload\)/);
   assert.match(component, /this\.\$emit\('nativeerror', payload\)/);
+  assert.match(component, /JSON\.parse\(text\) as EmbeddedCameraResult/);
+  assert.match(component, /JSON\.parse\(text\) \?\? \{\}/);
+  assert.doesNotMatch(component, /result\.success/);
+  assert.doesNotMatch(component, /__\$\$emit/);
+  assert.doesNotMatch(component, /NVUnload/);
   for (const eventName of [
     'photodone',
     'recordstart',
@@ -353,6 +358,7 @@ test('Android native component entry owns the PRD method surface', async () => {
     'cameraready',
   ]) {
     assert.match(component, new RegExp(`'${eventName}'`));
+    assert.match(component, new RegExp(`\\$emit\\('${eventName}', payload\\)`));
   }
   assert.match(component, /expose: \[/);
   for (const method of [

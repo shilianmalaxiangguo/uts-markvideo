@@ -66,18 +66,18 @@ function encode(value: any): string {
 
 function parseObject(text: string): any {
   try {
-    return JSON.parse(text)
+    return JSON.parse(text) ?? {}
   } catch (_) {
     return {}
   }
 }
 
 function parseResult(text: string): EmbeddedCameraResult {
-  const result = parseObject(text)
-  if (result.success == true || result.success == false) {
-    return result as EmbeddedCameraResult
+  try {
+    return JSON.parse(text) as EmbeddedCameraResult
+  } catch (error) {
+    return fail('9001', '原生返回结构无效', `${error}`)
   }
-  return fail('9001', '原生返回结构无效', text)
 }
 
 export default {
@@ -125,10 +125,6 @@ export default {
     this.cameraView = view
     return view
   },
-  NVUnload() {
-    this.cameraView?.destroyCamera()
-    this.cameraView = null
-  },
   methods: {
     emitNativeEvent(eventName: string, payload: any) {
       if (eventName == 'watermarkpositionchange') {
@@ -139,7 +135,33 @@ export default {
         this.$emit('nativeerror', payload)
         return
       }
-      this.__$$emit(eventName, payload)
+      if (eventName == 'photodone') {
+        this.$emit('photodone', payload)
+        return
+      }
+      if (eventName == 'recordstart') {
+        this.$emit('recordstart', payload)
+        return
+      }
+      if (eventName == 'recorddone') {
+        this.$emit('recorddone', payload)
+        return
+      }
+      if (eventName == 'flashchange') {
+        this.$emit('flashchange', payload)
+        return
+      }
+      if (eventName == 'zoomchange') {
+        this.$emit('zoomchange', payload)
+        return
+      }
+      if (eventName == 'camerafacingchange') {
+        this.$emit('camerafacingchange', payload)
+        return
+      }
+      if (eventName == 'cameraready') {
+        this.$emit('cameraready', payload)
+      }
     },
     requireCameraView(): MarkVideoEmbeddedCameraView | null {
       if (this.cameraView != null) {
@@ -246,7 +268,9 @@ export default {
       if (view == null) {
         return ok({})
       }
-      return this.bridgeResult(view.destroyCamera())
+      const result = this.bridgeResult(view.destroyCamera())
+      this.cameraView = null
+      return result
     }
   }
 }
