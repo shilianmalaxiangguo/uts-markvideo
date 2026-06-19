@@ -5,9 +5,9 @@
         <text class="summaryLabel">当前模板</text>
         <text class="summaryTitle">{{ currentTemplate.templateName }}</text>
       </view>
-      <button class="flashButton" :class="{ isActive: flashEnabled }" @click="toggleFlash">
-        {{ flashEnabled ? '闪光开' : '闪光关' }}
-      </button>
+      <view class="flashButton" :class="{ isActive: flashEnabled }" @tap="toggleFlash">
+        <text class="flashText">{{ flashEnabled ? '闪光开' : '闪光关' }}</text>
+      </view>
     </view>
 
     <view class="cameraStage">
@@ -16,73 +16,78 @@
         ref="embeddedCamera"
         class="nativePreview"
         :template-id="currentTemplate.templateId"
+        @nativeviewready="handleNativeViewReady"
         @watermarkpositionchange="handleNativeWatermarkPositionChange"
         @nativeerror="handleNativeError"
       />
+    </view>
 
+    <view class="bottomPanel">
       <view class="zoomRail">
-        <button
+        <view
           v-for="item in zoomOptions"
           :key="item.value"
           class="zoomButton"
           :class="{ isSelected: zoom === item.value }"
-          @click="selectZoom(item.value)"
+          @tap="selectZoom(item.value)"
         >
-          {{ item.label }}
-        </button>
+          <text class="zoomText">{{ item.label }}</text>
+        </view>
       </view>
-    </view>
 
-    <view class="bottomPanel">
       <view class="modeTabs">
-        <button
+        <view
           class="modeButton"
           :class="{ isSelected: mode === 'video' }"
-          @click="mode = 'video'"
+          @tap="mode = 'video'"
         >
-          视频
-        </button>
-        <button
+          <text>视频</text>
+        </view>
+        <view
           class="modeButton"
           :class="{ isSelected: mode === 'photo' }"
-          @click="mode = 'photo'"
+          @tap="mode = 'photo'"
         >
-          照片
-        </button>
+          <text>照片</text>
+        </view>
       </view>
 
       <view class="controls">
         <view class="thumb">
           <text class="thumbText">{{ lastResultLabel }}</text>
         </view>
-        <button
+        <view
           class="shutter"
           :class="shutterClass"
-          @click="pressShutter"
+          @tap="pressShutter"
         >
           <view class="shutterCore"></view>
-        </button>
-        <button class="templateButton" @click="templateSheetOpen = true">印</button>
+        </view>
+        <view class="templateButton" @tap="openTemplateSheet">
+          <text class="templateButtonText">印</text>
+        </view>
       </view>
       <text class="statusText">{{ status }}</text>
-    </view>
 
-    <view v-if="templateSheetOpen" class="sheetMask" @click="templateSheetOpen = false">
-      <view class="templateSheet" @click.stop>
+      <view v-if="templateSheetOpen" class="templatePanel">
         <view class="sheetHeader">
           <text class="sheetTitle">选择水印模板</text>
-          <button class="sheetClose" @click="templateSheetOpen = false">关闭</button>
+          <view class="sheetClose" @tap="closeTemplateSheet">
+            <text class="sheetCloseText">关闭</text>
+          </view>
         </view>
-        <button
-          v-for="template in templates"
-          :key="template.templateId"
-          class="templateOption"
-          :class="{ isSelected: currentTemplate.templateId === template.templateId }"
-          @click="applyTemplate(template)"
-        >
-          <text class="optionTitle">{{ template.templateName }}</text>
-          <text class="optionText">{{ template.mainTitleText }}</text>
-        </button>
+        <view class="templateList">
+          <view
+            v-for="template in templates"
+            :key="template.templateId"
+            class="templateOption"
+            :class="{ isSelected: currentTemplate.templateId === template.templateId }"
+            @tap="applyTemplate(template)"
+          >
+            <text class="optionTitle">{{ template.templateName }}</text>
+            <text class="optionText">{{ template.mainTitleText }}</text>
+          </view>
+        </view>
       </view>
     </view>
   </view>
@@ -102,6 +107,9 @@ export default {
       flashEnabled: false,
       recording: false,
       cameraReady: false,
+      nativeViewReady: false,
+      mountingCamera: false,
+      cameraDestroyed: false,
       templateSheetOpen: false,
       lastResultLabel: '暂无',
       status: '相机准备中',
@@ -161,43 +169,74 @@ export default {
     })
   },
   beforeUnmount() {
+    this.cameraDestroyed = true
     this.service?.destroyCamera()
   },
   methods: {
     async bootstrapCamera() {
-      this.cameraReady = false
-      const maxNativeViewAttempts = 18
-      let nativeViewAttempts = 0
-      while (true) {
-        const nativeCamera = await this.waitForNativeCamera()
-        if (!nativeCamera) {
-          this.status = '9001: 原生相机组件不可用'
-          return
-        }
-        const result = await this.service.mountCamera({
-          nativeCamera,
-          containerId: 'embeddedCamera',
-          previewWidth: 390,
-          previewHeight: 560,
-          cameraFacing: 'back',
-          zoom: '1x',
-          flashEnabled: false
-        })
-        if (result.success) {
-          this.cameraReady = true
-          await this.service.setWatermark(this.currentTemplate)
-          return
-        }
-        if (this.isPermissionPending(result)) {
-          await this.wait(600)
-          continue
-        }
-        if (this.isNativeViewLoading(result) && nativeViewAttempts < maxNativeViewAttempts - 1) {
-          nativeViewAttempts += 1
-          await this.wait(160)
-          continue
-        }
+      if (this.mountingCamera || this.cameraReady || this.cameraDestroyed) {
         return
+      }
+      this.mountingCamera = true
+      this.cameraReady = false
+      try {
+        const maxNativeViewAttempts = 18
+        const maxPermissionAttempts = 120
+        let nativeViewAttempts = 0
+        let permissionAttempts = 0
+        while (!this.cameraDestroyed) {
+          if (this.cameraDestroyed) {
+            return
+          }
+          const nativeCamera = await this.waitForNativeCamera()
+          if (this.cameraDestroyed) {
+            return
+          }
+          if (!nativeCamera) {
+            this.status = '9001: 原生相机组件不可用'
+            return
+          }
+          const mountResult = await this.service.mountCamera({
+            nativeCamera,
+            containerId: 'embeddedCamera',
+            previewWidth: 390,
+            previewHeight: 560,
+            cameraFacing: 'back',
+            zoom: '1x',
+            flashEnabled: false
+          })
+          if (this.cameraDestroyed) {
+            return
+          }
+          if (mountResult.success) {
+            this.cameraReady = true
+            await this.service.setWatermark(this.currentTemplate)
+            if (this.cameraDestroyed) {
+              return
+            }
+            return
+          }
+          if (this.isPermissionPending(mountResult) && permissionAttempts < maxPermissionAttempts) {
+            permissionAttempts += 1
+            this.status = '等待相机权限授权'
+            await this.wait(600)
+            if (this.cameraDestroyed) {
+              return
+            }
+            continue
+          }
+          if (this.isNativeViewLoading(mountResult) && nativeViewAttempts < maxNativeViewAttempts - 1) {
+            nativeViewAttempts += 1
+            await this.wait(160)
+            if (this.cameraDestroyed) {
+              return
+            }
+            continue
+          }
+          return
+        }
+      } finally {
+        this.mountingCamera = false
       }
     },
     isPermissionPending(result) {
@@ -219,15 +258,24 @@ export default {
     },
     hasNativeCameraMethods(nativeCamera) {
       return !!nativeCamera &&
-        typeof nativeCamera.mountCamera === 'function'
+        typeof nativeCamera.mountCamera === 'function' &&
+        typeof nativeCamera.isNativeViewLoaded === 'function'
+    },
+    resolveNativeCamera() {
+      const refCamera = this.$refs.embeddedCamera
+      if (this.hasNativeCameraMethods(refCamera) && refCamera.isNativeViewLoaded()) {
+        this.nativeViewReady = true
+        return refCamera
+      }
+      return null
     },
     waitForNativeCamera() {
       const maxAttempts = 30
       let attempts = 0
       return new Promise((resolve) => {
         const poll = () => {
-          const nativeCamera = this.$refs.embeddedCamera
-          if (this.hasNativeCameraMethods(nativeCamera)) {
+          const nativeCamera = this.resolveNativeCamera()
+          if (this.hasNativeCameraMethods(nativeCamera) && nativeCamera.isNativeViewLoaded()) {
             resolve(nativeCamera)
             return
           }
@@ -241,6 +289,29 @@ export default {
         poll()
       })
     },
+    openTemplateSheet() {
+      this.templateSheetOpen = true
+      this.scrollToTemplatePanel()
+    },
+    closeTemplateSheet() {
+      this.templateSheetOpen = false
+    },
+    scrollToTemplatePanel() {
+      this.$nextTick(() => {
+        uni.pageScrollTo({
+          selector: '.templatePanel',
+          duration: 160
+        })
+      })
+    },
+    handleNativeViewReady() {
+      this.nativeViewReady = true
+      if (!this.cameraReady && !this.mountingCamera && !this.cameraDestroyed) {
+        this.$nextTick(() => {
+          this.bootstrapCamera()
+        })
+      }
+    },
     ensureCameraReady() {
       if (this.cameraReady) {
         return true
@@ -251,11 +322,20 @@ export default {
       return false
     },
     async applyTemplate(template) {
-      const result = await this.service.setWatermark(template)
-      if (result.success) {
-        this.currentTemplate = template
-        this.templateSheetOpen = false
+      const previousTemplate = this.currentTemplate
+      this.currentTemplate = template
+      this.templateSheetOpen = false
+      if (!this.cameraReady) {
         this.status = '水印模板已更新'
+        return
+      }
+      const result = await this.service.setWatermark(template)
+      this.status = result.success
+        ? '水印模板已更新'
+        : `${result.errorCode}: ${result.errorMessage}`
+      if (!result.success) {
+        this.currentTemplate = previousTemplate
+        return
       }
     },
     async toggleFlash() {
@@ -342,30 +422,33 @@ export default {
   line-height: 24px;
 }
 
-.flashButton,
-.modeButton,
-.zoomButton,
-.templateButton,
-.sheetClose,
-.templateOption {
-  margin: 0;
-  border-radius: 8px;
-}
-
 .flashButton {
-  min-width: 78px;
+  width: 86px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid rgba(22, 33, 29, 0.24);
+  border-radius: 19px;
   background: #e9f0ed;
   color: #16211d;
+}
+
+.flashText {
   font-size: 13px;
+  line-height: 18px;
 }
 
 .flashButton.isActive {
+  border-color: #126fdb;
   background: #126fdb;
   color: #ffffff;
 }
 
 .cameraStage {
   position: relative;
+  height: 560px;
   min-height: 0;
   overflow: hidden;
   background: linear-gradient(180deg, #15211c, #0d1210);
@@ -373,29 +456,37 @@ export default {
 
 .nativePreview {
   width: 100%;
-  height: 100%;
-  min-height: 520px;
+  height: 560px;
+  min-height: 560px;
 }
 
 .zoomRail {
-  position: absolute;
-  z-index: 3;
-  right: 14px;
-  top: 50%;
-  display: grid;
-  gap: 10px;
-  transform: translateY(-50%);
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .zoomButton {
-  width: 52px;
-  min-height: 40px;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid rgba(247, 250, 248, 0.26);
+  border-radius: 50%;
   background: rgba(12, 18, 16, 0.64);
   color: #f7faf8;
+}
+
+.zoomText {
   font-size: 13px;
+  line-height: 18px;
 }
 
 .zoomButton.isSelected {
+  border-color: #f7faf8;
   background: #f7faf8;
   color: #101715;
 }
@@ -413,7 +504,10 @@ export default {
 
 .modeButton {
   min-width: 58px;
-  background: transparent;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #9ca8a2;
   font-size: 15px;
 }
@@ -451,6 +545,7 @@ export default {
   display: grid;
   place-items: center;
   padding: 0;
+  box-sizing: border-box;
   border: 3px solid rgba(255, 255, 255, 0.86);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.14);
@@ -477,10 +572,20 @@ export default {
 .templateButton {
   width: 54px;
   height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid rgba(247, 250, 248, 0.18);
+  border-radius: 50%;
   background: #f7faf8;
   color: #101715;
+}
+
+.templateButtonText {
   font-size: 24px;
   font-weight: 900;
+  line-height: 30px;
 }
 
 .statusText {
@@ -489,51 +594,63 @@ export default {
   text-align: center;
 }
 
-.sheetMask {
-  position: fixed;
-  z-index: 20;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(7, 10, 9, 0.48);
-}
-
-.templateSheet {
+.templatePanel {
   width: 100%;
-  padding: 18px;
-  border-radius: 8px 8px 0 0;
+  margin-top: 16px;
+  padding: 16px;
+  box-sizing: border-box;
+  border-radius: 8px;
   background: #ffffff;
   color: #16211d;
 }
 
 .sheetHeader {
+  min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .sheetTitle {
+  flex: 1;
+  min-width: 0;
   font-size: 17px;
   font-weight: 700;
+  line-height: 24px;
 }
 
 .sheetClose {
+  width: 68px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 17px;
   background: #e9f0ed;
   color: #16211d;
+}
+
+.sheetCloseText {
   font-size: 13px;
+  line-height: 18px;
+}
+
+.templateList {
+  display: grid;
+  gap: 10px;
 }
 
 .templateOption {
   width: 100%;
   display: grid;
   gap: 3px;
-  margin-top: 10px;
   padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: #f5f8f6;
   color: #16211d;
   text-align: left;

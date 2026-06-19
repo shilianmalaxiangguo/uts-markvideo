@@ -60,6 +60,10 @@ function fail(errorCode: string, errorMessage: string, nativeMessage: string = '
   }
 }
 
+function nativeViewUnavailable(): EmbeddedCameraResult {
+  return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+}
+
 function encode(value: any): string {
   return JSON.stringify(value ?? {})
 }
@@ -91,7 +95,8 @@ export default {
     'flashchange',
     'zoomchange',
     'camerafacingchange',
-    'cameraready'
+    'cameraready',
+    'nativeviewready'
   ],
   expose: [
     'mountCamera',
@@ -104,7 +109,8 @@ export default {
     'switchFlash',
     'setZoom',
     'switchCamera',
-    'destroyCamera'
+    'destroyCamera',
+    'isNativeViewLoaded'
   ],
   props: {
     templateId: {
@@ -114,7 +120,8 @@ export default {
   },
   data() {
     return {
-      cameraView: null as MarkVideoEmbeddedCameraView | null
+      cameraView: null as MarkVideoEmbeddedCameraView | null,
+      cameraViewLoaded: false
     }
   },
   NVLoad(): FrameLayout {
@@ -123,6 +130,10 @@ export default {
       this.emitNativeEvent(eventName, parseObject(payloadText))
     })
     this.cameraView = view
+    this.cameraViewLoaded = true
+    setTimeout(() => {
+      this.$emit('nativeviewready', {})
+    }, 0)
     return view
   },
   methods: {
@@ -163,14 +174,26 @@ export default {
         this.$emit('cameraready', payload)
       }
     },
-    requireCameraView(): MarkVideoEmbeddedCameraView | null {
+    resolveCameraView(): MarkVideoEmbeddedCameraView | null {
       if (this.cameraView != null) {
         return this.cameraView
       }
-      if (this.$el != null) {
-        this.cameraView = this.$el as MarkVideoEmbeddedCameraView
+      return null
+    },
+    isNativeViewLoaded(): boolean {
+      return this.cameraViewLoaded == true && this.cameraView != null
+    },
+    requireCameraView(): MarkVideoEmbeddedCameraView | null {
+      const view = this.resolveCameraView()
+      if (view != null) {
+        return view
       }
-      return this.cameraView
+      this.emitNativeEvent('nativeerror', {
+        errorCode: '9001',
+        errorMessage: '原生相机组件不可用',
+        nativeMessage: 'MarkVideoEmbeddedCameraView is not loaded.'
+      })
+      return null
     },
     bridgeResult(nativeResultText: string): EmbeddedCameraResult {
       return parseResult(nativeResultText)
@@ -178,35 +201,35 @@ export default {
     mountCamera(options: any): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.mountCamera(encode(options)))
     },
     setWatermark(template: WatermarkTemplate): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.setWatermark(encode(template)))
     },
     clearWatermark(): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.clearWatermark())
     },
     getWatermarkPosition(): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.getWatermarkPosition())
     },
     takePhoto(options: any = {}): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       try {
         return this.bridgeResult(view.takePhoto(encode(options)))
@@ -222,7 +245,7 @@ export default {
     startRecord(options: any = {}): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       try {
         return this.bridgeResult(view.startRecord(encode(options)))
@@ -238,37 +261,39 @@ export default {
     stopRecord(): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.stopRecord())
     },
     switchFlash(enabled: boolean): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.switchFlash(enabled))
     },
     setZoom(zoom: string): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.setZoom(zoom))
     },
     switchCamera(cameraFacing: string): EmbeddedCameraResult {
       const view = this.requireCameraView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       return this.bridgeResult(view.switchCamera(cameraFacing))
     },
     destroyCamera(): EmbeddedCameraResult {
-      const view = this.requireCameraView()
+      const view = this.resolveCameraView()
       if (view == null) {
+        this.cameraViewLoaded = false
         return ok({})
       }
       const result = this.bridgeResult(view.destroyCamera())
+      this.cameraViewLoaded = false
       this.cameraView = null
       return result
     }

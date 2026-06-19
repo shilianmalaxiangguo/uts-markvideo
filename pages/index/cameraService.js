@@ -404,6 +404,11 @@ export function createCameraService(handlers = {}) {
       return result
     },
     async destroyCamera() {
+      if (!nativeCamera) {
+        ready = false
+        recording = false
+        return ok({})
+      }
       const result = await callNative(nativeCamera, 'destroyCamera', emit)
       ready = false
       recording = false
