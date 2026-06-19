@@ -103,6 +103,7 @@ export default {
       zoom: '1x',
       flashEnabled: false,
       recording: false,
+      cameraReady: false,
       templateSheetOpen: false,
       lastResultLabel: '暂无',
       status: '相机准备中',
@@ -166,6 +167,7 @@ export default {
   },
   methods: {
     async bootstrapCamera() {
+      this.cameraReady = false
       const maxMountAttempts = 18
       for (let attempt = 0; attempt < maxMountAttempts; attempt += 1) {
         const nativeCamera = await this.waitForNativeCamera()
@@ -183,6 +185,7 @@ export default {
           flashEnabled: false
         })
         if (mountResult.success) {
+          this.cameraReady = true
           await this.service.setWatermark(this.currentTemplate)
           return
         }
@@ -209,24 +212,12 @@ export default {
     },
     hasNativeCameraMethods(nativeCamera) {
       return !!nativeCamera &&
-        typeof nativeCamera.mountCamera === 'function' &&
-        typeof nativeCamera.setWatermark === 'function' &&
-        typeof nativeCamera.setZoom === 'function'
+        typeof nativeCamera.mountCamera === 'function'
     },
     resolveNativeCamera() {
       const refCamera = this.$refs.embeddedCamera
       if (this.hasNativeCameraMethods(refCamera)) {
         return refCamera
-      }
-      if (typeof uni.getElementById === 'function') {
-        try {
-          const nativeCamera = uni.getElementById('embeddedCamera')
-          if (this.hasNativeCameraMethods(nativeCamera)) {
-            return nativeCamera
-          }
-        } catch (_error) {
-          return null
-        }
       }
       return null
     },
@@ -256,6 +247,15 @@ export default {
     closeTemplateSheet() {
       this.templateSheetOpen = false
     },
+    ensureCameraReady() {
+      if (this.cameraReady) {
+        return true
+      }
+      if (!/^\d{4}:/.test(this.status)) {
+        this.status = '相机未就绪，请稍候'
+      }
+      return false
+    },
     async applyTemplate(template) {
       const result = await this.service.setWatermark(template)
       if (result.success) {
@@ -265,9 +265,15 @@ export default {
       }
     },
     async toggleFlash() {
+      if (!this.ensureCameraReady()) {
+        return
+      }
       await this.service.switchFlash(!this.flashEnabled)
     },
     async selectZoom(value) {
+      if (!this.ensureCameraReady()) {
+        return
+      }
       await this.service.setZoom(value)
     },
     handleNativeWatermarkPositionChange(payload) {
@@ -285,6 +291,9 @@ export default {
       this.status = `${payload.errorCode}: ${payload.errorMessage}`
     },
     async pressShutter() {
+      if (!this.ensureCameraReady()) {
+        return
+      }
       if (this.mode === 'photo') {
         await this.service.takePhoto()
         return
