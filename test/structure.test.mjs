@@ -18,6 +18,12 @@ function extractMethodBlock(text, methodName) {
   return match[1];
 }
 
+function extractNativeStatusFunction(text, functionName) {
+  const match = text.match(new RegExp(`private func ${functionName}\\(\\) -> NativeStatus \\{([\\s\\S]*?)\\n    \\}`));
+  assert.ok(match, `Missing Swift function: ${functionName}`);
+  return match[1];
+}
+
 const requiredFiles = [
   'README.md',
   'docs/api.md',
@@ -98,7 +104,7 @@ test('business camera page embeds the native camera component and owns camera co
   const pagesJson = await readFile(path.join(root, 'pages.json'), 'utf8');
 
   assert.match(pagesJson, /pages\/camera\/camera/);
-  assert.match(cameraPage, /<uts-markvideo-camera/);
+  assert.match(cameraPage, /<UtsMarkvideoCamera/);
   assert.match(cameraPage, /import UtsMarkvideoCamera from ['"]@\/uni_modules\/uts-markvideo\/utssdk\/app-ios\/index\.vue['"]/);
   assert.match(cameraPage, /components:\s*\{\s*UtsMarkvideoCamera\s*\}/);
   assert.match(cameraPage, /ref="embeddedCamera"/);
@@ -110,12 +116,15 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /const nativeCamera = await this\.waitForNativeCamera\(\)/);
   assert.match(cameraPage, /nativeCamera,/);
   assert.match(cameraPage, /typeof nativeCamera\.mountCamera === 'function'/);
-  assert.match(cameraPage, /typeof nativeCamera\.isNativeViewLoaded === 'function'/);
-  assert.match(cameraPage, /nativeCamera\.isNativeViewLoaded\(\)/);
+  assert.match(cameraPage, /typeof refCamera\.isNativeViewLoaded === 'function'/);
+  assert.doesNotMatch(cameraPage, /this\.hasNativeCameraMethods\(nativeCamera\) && nativeCamera\.isNativeViewLoaded\(\)/);
   assert.doesNotMatch(cameraPage, /uni\.getElementById\('embeddedCamera'\)/);
   assert.doesNotMatch(cameraPage, /typeof nativeCamera\.setWatermark === 'function'[\s\S]*typeof nativeCamera\.setZoom === 'function'/);
-  assert.match(cameraPage, /const mountResult = await this\.service\.mountCamera/);
+  assert.match(cameraPage, /const mountResult = await this\.mountNativeCamera\(nativeCamera\)/);
+  assert.match(cameraPage, /await this\.completeCameraMount\(\)/);
   assert.match(cameraPage, /isNativeViewLoading\(mountResult\)/);
+  assert.match(cameraPage, /isPermissionPending\(result\)/);
+  assert.match(cameraPage, /等待相机权限授权/);
   assert.match(cameraPage, /await this\.wait\(160\)/);
   assert.match(cameraPage, /continue/);
   assert.match(cameraPage, /cameraReady: false/);
@@ -125,12 +134,15 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /this\.cameraReady = true/);
   assert.match(cameraPage, /if \(this\.mountingCamera \|\| this\.cameraReady \|\| this\.cameraDestroyed\) \{[\s\S]*return/);
   assert.match(cameraPage, /this\.mountingCamera = true[\s\S]*finally \{[\s\S]*this\.mountingCamera = false/);
-  assert.match(cameraPage, /handleNativeViewReady\(\) \{[\s\S]*this\.nativeViewReady = true[\s\S]*if \(!this\.cameraReady && !this\.mountingCamera && !this\.cameraDestroyed\)/);
+  assert.match(cameraPage, /handleNativeViewReady\(\) \{[\s\S]*this\.nativeViewReady = true[\s\S]*this\.retryBootstrapAfterNativeViewLoad\(\)/);
   assert.match(cameraPage, /this\.\$nextTick\(\(\) => \{[\s\S]*this\.bootstrapCamera\(\)/);
   assert.match(cameraPage, /beforeUnmount\(\) \{[\s\S]*this\.cameraDestroyed = true/);
   assert.match(cameraPage, /ensureCameraReady\(\) \{[\s\S]*if \(this\.cameraReady\) \{[\s\S]*return true[\s\S]*if \(!\/\^\\d\{4\}:\//);
   assert.match(cameraPage, /this\.status = '相机未就绪，请稍候'/);
   assert.match(cameraPage, /if \(!this\.ensureCameraReady\(\)\) \{[\s\S]*return[\s\S]*await this\.service\.takePhoto/);
+  assert.match(cameraPage, /startRecordingWithPermission\(\)/);
+  assert.match(cameraPage, /const result = await this\.service\.startRecord\(\)/);
+  assert.match(cameraPage, /等待麦克风权限授权/);
   assert.match(cameraPage, /onCameraReady/);
   assert.match(cameraPage, /onPhotoDone/);
   assert.match(cameraPage, /onRecordStart/);
@@ -139,25 +151,31 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /toggleFlash/);
   assert.match(cameraPage, /selectZoom/);
   assert.match(cameraPage, /pressShutter/);
-  assert.match(cameraPage, /templateSheetOpen/);
   assert.match(cameraPage, /@tap="openTemplateSheet"/);
-  assert.match(cameraPage, /scrollToTemplatePanel\(\)/);
-  assert.match(cameraPage, /selector: '\.templatePanel'/);
-  assert.match(cameraPage, /@tap="applyTemplate\(template\)"/);
-  assert.doesNotMatch(cameraPage, /<cover-view/);
+  assert.match(cameraPage, /uni\.showActionSheet\(\{/);
+  assert.match(cameraPage, /itemList/);
+  assert.match(cameraPage, /await this\.applyTemplate\(template\)/);
+  assert.doesNotMatch(cameraPage, /templateSheetOpen/);
+  assert.doesNotMatch(cameraPage, /scrollToTemplatePanel\(\)/);
+  assert.doesNotMatch(cameraPage, /selector: '\.templatePanel'/);
   assert.doesNotMatch(cameraPage, /class="sheetMask"/);
-  assert.doesNotMatch(cameraPage, /position: fixed/);
   assert.match(cameraPage, /class="zoomRail"/);
-  assert.match(cameraPage, /class="templatePanel"/);
+  assert.match(cameraPage, /<cover-view class="zoomRail">/);
+  assert.match(cameraPage, /\.zoomRail \{[\s\S]*position: absolute[\s\S]*right: 10px[\s\S]*flex-direction: column/);
+  assert.doesNotMatch(cameraPage, /class="templatePanel"/);
   assert.match(cameraPage, /视频/);
   assert.match(cameraPage, /照片/);
   assert.match(cameraPage, /广角/);
   assert.match(cameraPage, /class="templateButton"/);
-  assert.match(cameraPage, /\.flashButton \{[\s\S]*border: 1px solid[\s\S]*border-radius: 19px/);
-  assert.match(cameraPage, /\.zoomButton \{[\s\S]*width: 54px[\s\S]*height: 54px[\s\S]*border-radius: 50%/);
+  assert.match(cameraPage, /\.topBar \{[\s\S]*background: rgba\(3, 5, 5, 0\.72\)/);
+  assert.match(cameraPage, /\.bottomPanel \{[\s\S]*background: rgba\(3, 5, 5, 0\.78\)/);
+  assert.match(cameraPage, /\.flashButton \{[\s\S]*border: 1px solid[\s\S]*border-radius: 19px[\s\S]*background: rgba\(247, 250, 248, 0\.12\)/);
+  assert.match(cameraPage, /\.zoomButton \{[\s\S]*width: 48px[\s\S]*height: 48px[\s\S]*border-radius: 50%/);
   assert.match(cameraPage, /\.templateButton \{[\s\S]*width: 54px[\s\S]*height: 54px[\s\S]*border-radius: 50%/);
+  assert.match(cameraPage, /\.shutter \{[\s\S]*width: 82px[\s\S]*height: 82px[\s\S]*border: 5px solid rgba\(255, 255, 255, 0\.78\)[\s\S]*box-shadow:/);
+  assert.match(cameraPage, /\.shutterCore \{[\s\S]*width: 72px[\s\S]*height: 72px/);
   assert.match(cameraPage, /const previousTemplate = this\.currentTemplate[\s\S]*this\.currentTemplate = template/);
-  assert.match(cameraPage, /this\.currentTemplate = template[\s\S]*this\.templateSheetOpen = false[\s\S]*if \(!this\.cameraReady\)/);
+  assert.match(cameraPage, /this\.currentTemplate = template[\s\S]*if \(!this\.cameraReady\)/);
   assert.match(cameraPage, /const result = await this\.service\.setWatermark\(template\)/);
   assert.match(cameraPage, /if \(!result\.success\) \{[\s\S]*this\.currentTemplate = previousTemplate[\s\S]*return[\s\S]*\}/);
   assert.match(cameraPage, /\.cameraStage \{[\s\S]*height: 560px/);
@@ -486,6 +504,8 @@ test('iOS embedded native view implements PRD preview, media, watermark, and eve
     path.join(root, 'uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoEmbeddedCameraView.swift'),
     'utf8',
   );
+  const videoAccessBlock = extractNativeStatusFunction(nativeView, 'requestVideoAccessIfNeeded');
+  const audioAccessBlock = extractNativeStatusFunction(nativeView, 'requestAudioAccessIfNeeded');
 
   assert.match(nativeView, /public final class MarkVideoEmbeddedCameraView: UIView/);
   assert.match(nativeView, /AVCaptureSession/);
@@ -501,6 +521,8 @@ test('iOS embedded native view implements PRD preview, media, watermark, and eve
   assert.match(nativeView, /public func startRecord\(_ optionsJSON: String\) -> String/);
   assert.match(nativeView, /public func stopRecord\(\) -> String/);
   assert.match(nativeView, /private static let captureQueueKey = DispatchSpecificKey<Bool>\(\)/);
+  assert.match(nativeView, /private var videoPermissionRequestPending = false/);
+  assert.match(nativeView, /private var audioPermissionRequestPending = false/);
   assert.match(nativeView, /private func runOnCaptureQueueSync<T>\(_ block: \(\) -> T\) -> T/);
   assert.match(nativeView, /let started = runOnCaptureQueueSync \{[\s\S]*session\.startRunning\(\)[\s\S]*session\.isRunning/);
   assert.match(nativeView, /private func configureCameraSessionOnCaptureQueue\(facing: String, zoom requestedZoom: String\) -> NativeStatus/);
@@ -513,8 +535,20 @@ test('iOS embedded native view implements PRD preview, media, watermark, and eve
   assert.match(nativeView, /saveImageToGallerySynchronously/);
   assert.match(nativeView, /saveVideoToGallerySynchronously/);
   assert.match(nativeView, /emitNativeError\("1501"/);
-  assert.match(nativeView, /requestAudioAccessSynchronously/);
-  assert.match(nativeView, /return fail\("1002"/);
+  assert.match(nativeView, /requestAudioAccessIfNeeded/);
+  assert.match(nativeView, /let videoAccess = requestVideoAccessIfNeeded\(\)[\s\S]*guard videoAccess\.success/);
+  assert.match(nativeView, /let audioAccess = requestAudioAccessIfNeeded\(\)[\s\S]*guard audioAccess\.success/);
+  assert.match(nativeView, /AVCaptureDevice\.requestAccess\(for: \.video\)/);
+  assert.match(nativeView, /AVCaptureDevice\.requestAccess\(for: \.audio\)/);
+  assert.match(nativeView, /if !videoPermissionRequestPending/);
+  assert.match(nativeView, /if !audioPermissionRequestPending/);
+  assert.match(nativeView, /DispatchQueue\.main\.async/);
+  assert.match(nativeView, /permission request is pending/);
+  assert.doesNotMatch(nativeView, /requestVideoAccessSynchronously/);
+  assert.doesNotMatch(nativeView, /requestAudioAccessSynchronously/);
+  assert.doesNotMatch(videoAccessBlock, /semaphore\.wait/);
+  assert.doesNotMatch(audioAccessBlock, /semaphore\.wait/);
+  assert.match(nativeView, /return NativeStatus\(false, "1002"/);
   assert.match(nativeView, /return fail\("1403"/);
   assert.match(nativeView, /EmbeddedWatermarkTemplate\.parse/);
   assert.match(nativeView, /AVVideoCodecKey: AVVideoCodecH264/);

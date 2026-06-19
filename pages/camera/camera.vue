@@ -11,7 +11,7 @@
     </view>
 
     <view class="cameraStage">
-      <uts-markvideo-camera
+      <UtsMarkvideoCamera
         id="embeddedCamera"
         ref="embeddedCamera"
         class="nativePreview"
@@ -20,21 +20,21 @@
         @watermarkpositionchange="handleNativeWatermarkPositionChange"
         @nativeerror="handleNativeError"
       />
-    </view>
 
-    <view class="bottomPanel">
-      <view class="zoomRail">
-        <view
+      <cover-view class="zoomRail">
+        <cover-view
           v-for="item in zoomOptions"
           :key="item.value"
           class="zoomButton"
           :class="{ isSelected: zoom === item.value }"
           @tap="selectZoom(item.value)"
         >
-          <text class="zoomText">{{ item.label }}</text>
-        </view>
-      </view>
+          <cover-view class="zoomText">{{ item.label }}</cover-view>
+        </cover-view>
+      </cover-view>
+    </view>
 
+    <view class="bottomPanel">
       <view class="modeTabs">
         <view
           class="modeButton"
@@ -68,27 +68,6 @@
         </view>
       </view>
       <text class="statusText">{{ status }}</text>
-
-      <view v-if="templateSheetOpen" class="templatePanel">
-        <view class="sheetHeader">
-          <text class="sheetTitle">选择水印模板</text>
-          <view class="sheetClose" @tap="closeTemplateSheet">
-            <text class="sheetCloseText">关闭</text>
-          </view>
-        </view>
-        <view class="templateList">
-          <view
-            v-for="template in templates"
-            :key="template.templateId"
-            class="templateOption"
-            :class="{ isSelected: currentTemplate.templateId === template.templateId }"
-            @tap="applyTemplate(template)"
-          >
-            <text class="optionTitle">{{ template.templateName }}</text>
-            <text class="optionText">{{ template.mainTitleText }}</text>
-          </view>
-        </view>
-      </view>
     </view>
   </view>
 </template>
@@ -113,8 +92,8 @@ export default {
       cameraReady: false,
       nativeViewReady: false,
       mountingCamera: false,
+      pendingNativeViewRetry: false,
       cameraDestroyed: false,
-      templateSheetOpen: false,
       lastResultLabel: '暂无',
       status: '相机准备中',
       zoomOptions: [
@@ -183,9 +162,13 @@ export default {
       }
       this.mountingCamera = true
       this.cameraReady = false
+      this.pendingNativeViewRetry = false
       try {
-        const maxMountAttempts = 18
-        for (let attempt = 0; attempt < maxMountAttempts; attempt += 1) {
+        const maxNativeViewAttempts = 18
+        const maxPermissionAttempts = 120
+        let nativeViewAttempts = 0
+        let permissionAttempts = 0
+        while (!this.cameraDestroyed) {
           if (this.cameraDestroyed) {
             return
           }
@@ -194,21 +177,21 @@ export default {
             this.status = '9001: 原生相机组件不可用'
             return
           }
-          const mountResult = await this.service.mountCamera({
-            nativeCamera,
-            containerId: 'embeddedCamera',
-            previewWidth: 390,
-            previewHeight: 560,
-            cameraFacing: 'back',
-            zoom: '1x',
-            flashEnabled: false
-          })
-          if (mountResult.success) {
-            this.cameraReady = true
-            await this.service.setWatermark(this.currentTemplate)
+          this.status = '正在请求相机权限'
+          const mountResult = await this.mountNativeCamera(nativeCamera)
+          if (this.cameraDestroyed) {
             return
           }
-          if (this.isNativeViewLoading(mountResult) && attempt < maxMountAttempts - 1) {
+          if (mountResult.success) {
+            await this.completeCameraMount()
+            return
+          }
+          if (await this.waitForPermission(mountResult, permissionAttempts)) {
+            permissionAttempts += 1
+            continue
+          }
+          if (this.isNativeViewLoading(mountResult) && nativeViewAttempts < maxNativeViewAttempts - 1) {
+            nativeViewAttempts += 1
             await this.wait(160)
             continue
           }
@@ -216,16 +199,19 @@ export default {
         }
       } finally {
         this.mountingCamera = false
+        if (this.pendingNativeViewRetry && !this.cameraReady && !this.cameraDestroyed) {
+          this.pendingNativeViewRetry = false
+          this.$nextTick(() => {
+            this.bootstrapCamera()
+          })
+        }
       }
     },
     isNativeViewLoading(result) {
       return result &&
-        (result.errorCode === '9001' || result.errorCode === '1104') &&
+        result.errorCode === '9001' &&
         typeof result.nativeMessage === 'string' &&
-        (
-          result.nativeMessage.includes('MarkVideoEmbeddedCameraView is not loaded') ||
-          result.nativeMessage.includes('permission request is pending')
-        )
+        result.nativeMessage.includes('MarkVideoEmbeddedCameraView is not loaded')
     },
     wait(ms) {
       return new Promise((resolve) => {
@@ -234,13 +220,14 @@ export default {
     },
     hasNativeCameraMethods(nativeCamera) {
       return !!nativeCamera &&
-        typeof nativeCamera.mountCamera === 'function' &&
-        typeof nativeCamera.isNativeViewLoaded === 'function'
+        typeof nativeCamera.mountCamera === 'function'
     },
     resolveNativeCamera() {
       const refCamera = this.$refs.embeddedCamera
-      if (this.hasNativeCameraMethods(refCamera) && refCamera.isNativeViewLoaded()) {
-        this.nativeViewReady = true
+      if (this.hasNativeCameraMethods(refCamera)) {
+        if (typeof refCamera.isNativeViewLoaded === 'function' && refCamera.isNativeViewLoaded()) {
+          this.nativeViewReady = true
+        }
         return refCamera
       }
       return null
@@ -251,7 +238,7 @@ export default {
       return new Promise((resolve) => {
         const poll = () => {
           const nativeCamera = this.resolveNativeCamera()
-          if (this.hasNativeCameraMethods(nativeCamera) && nativeCamera.isNativeViewLoaded()) {
+          if (this.hasNativeCameraMethods(nativeCamera)) {
             resolve(nativeCamera)
             return
           }
@@ -266,27 +253,86 @@ export default {
       })
     },
     openTemplateSheet() {
-      this.templateSheetOpen = true
-      this.scrollToTemplatePanel()
-    },
-    closeTemplateSheet() {
-      this.templateSheetOpen = false
-    },
-    scrollToTemplatePanel() {
-      this.$nextTick(() => {
-        uni.pageScrollTo({
-          selector: '.templatePanel',
-          duration: 160
-        })
+      const itemList = this.templates.map((template) => {
+        return `${template.templateName}  ${template.mainTitleText}`
+      })
+      uni.showActionSheet({
+        itemList,
+        success: async (res) => {
+          const template = this.templates[res.tapIndex]
+          if (template) {
+            await this.applyTemplate(template)
+          }
+        },
+        fail: (error) => {
+          const message = error?.errMsg || ''
+          if (message && !message.includes('cancel')) {
+            this.status = `9001: ${message}`
+          }
+        }
       })
     },
-    handleNativeViewReady() {
-      this.nativeViewReady = true
-      if (!this.cameraReady && !this.mountingCamera && !this.cameraDestroyed) {
+    isPermissionPending(result) {
+      return result &&
+        result.errorCode === '1104' &&
+        typeof result.nativeMessage === 'string' &&
+        result.nativeMessage.includes('permission request is pending')
+    },
+    async waitForPermission(result, attempts) {
+      if (this.isPermissionPending(result) && attempts < 120) {
+        this.status = '等待相机权限授权'
+        await this.wait(600)
+        return true
+      }
+      return false
+    },
+    async startRecordingWithPermission() {
+      const maxPermissionAttempts = 120
+      for (let attempt = 0; attempt < maxPermissionAttempts; attempt += 1) {
+        const result = await this.service.startRecord()
+        if (result.success) {
+          return
+        }
+        if (this.isPermissionPending(result)) {
+          this.status = '等待麦克风权限授权'
+          await this.wait(600)
+          continue
+        }
+        return
+      }
+    },
+    async mountNativeCamera(nativeCamera) {
+      return this.service.mountCamera({
+        nativeCamera,
+        containerId: 'embeddedCamera',
+        previewWidth: 390,
+        previewHeight: 560,
+        cameraFacing: 'back',
+        zoom: '1x',
+        flashEnabled: false
+      })
+    },
+    async completeCameraMount() {
+      this.cameraReady = true
+      await this.service.setWatermark(this.currentTemplate)
+    },
+    async retryBootstrapAfterNativeViewLoad() {
+      if (this.cameraReady || this.cameraDestroyed) {
+        return
+      }
+      if (this.mountingCamera) {
+        this.pendingNativeViewRetry = true
+        return
+      }
+      if (!this.mountingCamera) {
         this.$nextTick(() => {
           this.bootstrapCamera()
         })
       }
+    },
+    handleNativeViewReady() {
+      this.nativeViewReady = true
+      this.retryBootstrapAfterNativeViewLoad()
     },
     ensureCameraReady() {
       if (this.cameraReady) {
@@ -300,7 +346,6 @@ export default {
     async applyTemplate(template) {
       const previousTemplate = this.currentTemplate
       this.currentTemplate = template
-      this.templateSheetOpen = false
       if (!this.cameraReady) {
         this.status = '水印模板已更新'
         return
@@ -351,7 +396,7 @@ export default {
       if (this.recording) {
         await this.service.stopRecord()
       } else {
-        await this.service.startRecord()
+        await this.startRecordingWithPermission()
       }
     }
   }
@@ -372,9 +417,9 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: calc(var(--status-bar-height) + 8px) 16px 12px;
-  background: #f8faf9;
-  color: #16211d;
+  padding: calc(var(--status-bar-height) + 10px) 16px 14px;
+  background: rgba(3, 5, 5, 0.72);
+  color: #f7faf8;
 }
 
 .templateSummary {
@@ -382,9 +427,8 @@ export default {
 }
 
 .summaryLabel,
-.statusText,
-.optionText {
-  color: #718078;
+.statusText {
+  color: rgba(247, 250, 248, 0.68);
   font-size: 12px;
   line-height: 18px;
 }
@@ -392,7 +436,7 @@ export default {
 .summaryTitle {
   display: block;
   margin-top: 2px;
-  color: #16211d;
+  color: #ffffff;
   font-size: 17px;
   font-weight: 700;
   line-height: 24px;
@@ -405,10 +449,10 @@ export default {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  border: 1px solid rgba(22, 33, 29, 0.24);
+  border: 1px solid rgba(247, 250, 248, 0.34);
   border-radius: 19px;
-  background: #e9f0ed;
-  color: #16211d;
+  background: rgba(247, 250, 248, 0.12);
+  color: #f7faf8;
 }
 
 .flashText {
@@ -437,15 +481,20 @@ export default {
 }
 
 .zoomRail {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
   display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 10px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 6;
 }
 
 .zoomButton {
-  width: 54px;
-  height: 54px;
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -468,8 +517,8 @@ export default {
 }
 
 .bottomPanel {
-  padding: 12px 18px 18px;
-  background: #101715;
+  padding: 14px 18px 18px;
+  background: rgba(3, 5, 5, 0.78);
 }
 
 .modeTabs {
@@ -516,20 +565,23 @@ export default {
 
 .shutter {
   justify-self: center;
-  width: 78px;
-  height: 78px;
+  width: 82px;
+  height: 82px;
   display: grid;
   place-items: center;
   padding: 0;
   box-sizing: border-box;
-  border: 3px solid rgba(255, 255, 255, 0.86);
+  border: 5px solid rgba(255, 255, 255, 0.78);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.32) inset,
+    0 0 18px rgba(255, 255, 255, 0.18);
 }
 
 .shutterCore {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   background: #ffffff;
 }
@@ -568,77 +620,5 @@ export default {
   display: block;
   margin-top: 12px;
   text-align: center;
-}
-
-.templatePanel {
-  width: 100%;
-  margin-top: 16px;
-  padding: 16px;
-  box-sizing: border-box;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #16211d;
-}
-
-.sheetHeader {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.sheetTitle {
-  flex: 1;
-  min-width: 0;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 24px;
-}
-
-.sheetClose {
-  width: 68px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  border-radius: 17px;
-  background: #e9f0ed;
-  color: #16211d;
-}
-
-.sheetCloseText {
-  font-size: 13px;
-  line-height: 18px;
-}
-
-.templateList {
-  display: grid;
-  gap: 10px;
-}
-
-.templateOption {
-  width: 100%;
-  display: grid;
-  gap: 3px;
-  padding: 12px;
-  box-sizing: border-box;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: #f5f8f6;
-  color: #16211d;
-  text-align: left;
-}
-
-.templateOption.isSelected {
-  border: 1px solid #126fdb;
-  background: #edf5ff;
-}
-
-.optionTitle {
-  font-size: 15px;
-  font-weight: 700;
 }
 </style>

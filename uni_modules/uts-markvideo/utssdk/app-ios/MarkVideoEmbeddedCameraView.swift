@@ -35,6 +35,8 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
     private var ready = false
     private var recording = false
     private var destroyed = false
+    private var videoPermissionRequestPending = false
+    private var audioPermissionRequestPending = false
     private var cameraFacing = "back"
     private var zoom = "1x"
     private var flashEnabled = false
@@ -104,8 +106,9 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
         _ nextFlashEnabled: Bool
     ) -> String {
         destroyed = false
-        guard requestVideoAccessSynchronously() else {
-            return fail("1001", "相机权限被拒绝", "Camera permission denied.")
+        let videoAccess = requestVideoAccessIfNeeded()
+        guard videoAccess.success else {
+            return fail(videoAccess.code, videoAccess.message, videoAccess.nativeMessage)
         }
 
         cameraFacing = nextFacing == "front" ? "front" : "back"
@@ -236,8 +239,9 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
         guard !recording else {
             return fail("1403", "当前状态不允许执行该操作", "duplicate startRecord")
         }
-        guard requestAudioAccessSynchronously() else {
-            return fail("1002", "麦克风权限被拒绝", "Microphone permission denied.")
+        let audioAccess = requestAudioAccessIfNeeded()
+        guard audioAccess.success else {
+            return fail(audioAccess.code, audioAccess.message, audioAccess.nativeMessage)
         }
 
         let outputTemplate = templateFromOptions(optionsJSON) ?? activeTemplate
@@ -665,41 +669,53 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
         ]))
     }
 
-    private func requestVideoAccessSynchronously() -> Bool {
+    private func requestVideoAccessIfNeeded() -> NativeStatus {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         switch status {
         case .authorized:
-            return true
+            videoPermissionRequestPending = false
+            return .ok
         case .notDetermined:
-            let semaphore = DispatchSemaphore(value: 0)
-            var granted = false
-            AVCaptureDevice.requestAccess(for: .video) { isGranted in
-                granted = isGranted
-                semaphore.signal()
+            if !videoPermissionRequestPending {
+                videoPermissionRequestPending = true
+                AVCaptureDevice.requestAccess(for: .video) { [weak self] isGranted in
+                    DispatchQueue.main.async {
+                        self?.videoPermissionRequestPending = false
+                        if !isGranted {
+                            self?.emitNativeError("1001", "相机权限被拒绝", "Camera permission denied.")
+                        }
+                    }
+                }
             }
-            semaphore.wait()
-            return granted
+            return NativeStatus(false, "1104", "相机未挂载或未就绪", "permission request is pending")
         default:
-            return false
+            videoPermissionRequestPending = false
+            return NativeStatus(false, "1001", "相机权限被拒绝", "Camera permission denied.")
         }
     }
 
-    private func requestAudioAccessSynchronously() -> Bool {
+    private func requestAudioAccessIfNeeded() -> NativeStatus {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         switch status {
         case .authorized:
-            return true
+            audioPermissionRequestPending = false
+            return .ok
         case .notDetermined:
-            let semaphore = DispatchSemaphore(value: 0)
-            var granted = false
-            AVCaptureDevice.requestAccess(for: .audio) { isGranted in
-                granted = isGranted
-                semaphore.signal()
+            if !audioPermissionRequestPending {
+                audioPermissionRequestPending = true
+                AVCaptureDevice.requestAccess(for: .audio) { [weak self] isGranted in
+                    DispatchQueue.main.async {
+                        self?.audioPermissionRequestPending = false
+                        if !isGranted {
+                            self?.emitNativeError("1002", "麦克风权限被拒绝", "Microphone permission denied.")
+                        }
+                    }
+                }
             }
-            semaphore.wait()
-            return granted
+            return NativeStatus(false, "1104", "相机未挂载或未就绪", "permission request is pending")
         default:
-            return false
+            audioPermissionRequestPending = false
+            return NativeStatus(false, "1002", "麦克风权限被拒绝", "Microphone permission denied.")
         }
     }
 
