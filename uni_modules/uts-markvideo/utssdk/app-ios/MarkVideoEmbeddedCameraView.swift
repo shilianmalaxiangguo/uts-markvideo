@@ -376,6 +376,7 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
             return NativeStatus(false, "1101", "相机设备不可用", "No camera device.")
         }
 
+        var didBeginConfiguration = false
         do {
             let nextVideoInput = try AVCaptureDeviceInput(device: camera)
             let nextVideoOutput = AVCaptureVideoDataOutput()
@@ -386,6 +387,7 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
             nextVideoOutput.setSampleBufferDelegate(self, queue: writerQueue)
 
             session.beginConfiguration()
+            didBeginConfiguration = true
             session.sessionPreset = .hd1280x720
             if let videoInput = videoInput {
                 session.removeInput(videoInput)
@@ -411,13 +413,16 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
                 }
             }
             session.commitConfiguration()
+            didBeginConfiguration = false
 
             videoInput = nextVideoInput
             videoOutput = nextVideoOutput
             activeDevice = camera
             return applyZoom(requestedZoom)
         } catch {
-            session.commitConfiguration()
+            if didBeginConfiguration {
+                session.commitConfiguration()
+            }
             return NativeStatus(false, "1101", "相机设备不可用", error.localizedDescription)
         }
     }
@@ -430,11 +435,13 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
             guard let microphone = AVCaptureDevice.default(for: .audio) else {
                 return NativeStatus(false, "1002", "麦克风权限被拒绝", "No microphone device.")
             }
+            var didBeginConfiguration = false
             do {
                 let nextInput = try AVCaptureDeviceInput(device: microphone)
                 let nextOutput = AVCaptureAudioDataOutput()
                 nextOutput.setSampleBufferDelegate(self, queue: writerQueue)
                 session.beginConfiguration()
+                didBeginConfiguration = true
                 if session.canAddInput(nextInput) {
                     session.addInput(nextInput)
                 } else {
@@ -448,11 +455,14 @@ public final class MarkVideoEmbeddedCameraView: UIView, AVCaptureVideoDataOutput
                     return NativeStatus(false, "1401", "录像开始失败", "Cannot add audio output.")
                 }
                 session.commitConfiguration()
+                didBeginConfiguration = false
                 audioInput = nextInput
                 audioOutput = nextOutput
                 return NativeStatus.ok
             } catch {
-                session.commitConfiguration()
+                if didBeginConfiguration {
+                    session.commitConfiguration()
+                }
                 return NativeStatus(false, "1401", "录像开始失败", error.localizedDescription)
             }
         }

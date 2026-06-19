@@ -230,7 +230,7 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px;
+  padding: calc(var(--status-bar-height) + 8px) 16px 12px;
   background: #f8faf9;
   color: #16211d;
 }
@@ -268,6 +268,8 @@ export default {
 
 .flashButton {
   min-width: 78px;
+  min-height: 40px;
+  padding: 0 12px;
   background: #e9f0ed;
   color: #16211d;
   font-size: 13px;

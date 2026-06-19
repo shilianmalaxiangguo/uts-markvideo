@@ -105,6 +105,7 @@ test('business camera page embeds the native camera component and owns camera co
   assert.match(cameraPage, /广角/);
   assert.match(cameraPage, /class="templateButton"/);
   assert.match(cameraPage, /isRecording/);
+  assert.match(cameraPage, /var\(--status-bar-height\)/);
   assert.doesNotMatch(cameraPage, /class="watermarkBox"/);
 });
 
@@ -367,11 +368,17 @@ test('iOS native component entry owns the PRD method surface', async () => {
   ]) {
     assert.match(component, new RegExp(`${method}`));
   }
-  assert.match(component, /__\$\$emit\('watermarkpositionchange'/);
-  assert.match(component, /view\.takePhoto\(stringify\(_options\)\)/);
-  assert.match(component, /view\.startRecord\(stringify\(_options\)\)/);
-  assert.match(component, /view\.stopRecord\(\)/);
+  assert.match(component, /type EmbeddedCameraMountOptions/);
+  assert.match(component, /this\.\$emit\('watermarkpositionchange', parsePayload\(payload\)\)/);
+  assert.match(component, /this\.\$emit\('nativeerror'/);
+  assert.match(component, /view!\.mountCamera/);
+  assert.match(component, /view!\.takePhoto\(stringify\(options\)\)/);
+  assert.match(component, /view!\.startRecord\(stringify\(options\)\)/);
+  assert.match(component, /view!\.stopRecord\(\)/);
   assert.match(component, /if \(!result\.success\) \{[\s\S]*result\.errorCode == '1402'[\s\S]*this\.recording = false[\s\S]*this\.frozenTemplate = null[\s\S]*return result/);
+  assert.doesNotMatch(component, /__\$\$emit/);
+  assert.doesNotMatch(component, /JSON\.parse\(JSON\.stringify/);
+  assert.doesNotMatch(component, /result\.data\./);
   assert.doesNotMatch(component, /Embedded iOS camera media pipeline is not bound/);
   assert.doesNotMatch(component, /recordWatermarkVideo/);
 });
@@ -397,6 +404,8 @@ test('iOS embedded native view implements PRD preview, media, watermark, and eve
   assert.match(nativeView, /let started = runOnCaptureQueueSync \{[\s\S]*session\.startRunning\(\)[\s\S]*session\.isRunning/);
   assert.match(nativeView, /private func configureCameraSessionOnCaptureQueue\(facing: String, zoom requestedZoom: String\) -> NativeStatus/);
   assert.match(nativeView, /runOnCaptureQueueSync \{[\s\S]*session\.stopRunning\(\)[\s\S]*session\.beginConfiguration\(\)/);
+  assert.match(nativeView, /var didBeginConfiguration = false/);
+  assert.match(nativeView, /if didBeginConfiguration \{[\s\S]*session\.commitConfiguration\(\)/);
   assert.doesNotMatch(nativeView, /AVCaptureDevice\.default\(\.builtInWideAngleCamera, for: \.video, position: position\) \?\?[\s\S]*AVCaptureDevice\.default\(for: \.video\)/);
   assert.match(nativeView, /frozenTemplate = outputTemplate/);
   assert.match(nativeView, /makeWatermarkedImage/);

@@ -13,6 +13,19 @@ type EmbeddedCameraResult = {
   data: any
 }
 
+type EmbeddedCameraMountOptions = {
+  containerId?: string
+  previewWidth?: number
+  previewHeight?: number
+  cameraFacing?: string
+  zoom?: string
+  flashEnabled?: boolean
+}
+
+type EmbeddedCameraMediaOptions = {
+  watermarkTemplate?: WatermarkTemplate
+}
+
 type WatermarkTemplate = {
   templateId: string
   templateName: string
@@ -39,7 +52,7 @@ type WatermarkTemplate = {
   boxPadding?: number
 }
 
-function ok(data: any): EmbeddedCameraResult {
+function ok(data: any = {}): EmbeddedCameraResult {
   return {
     success: true,
     errorCode: '',
@@ -59,8 +72,39 @@ function fail(errorCode: string, errorMessage: string, nativeMessage: string = '
   }
 }
 
-function cloneTemplate(template: WatermarkTemplate | null): any {
-  return template == null ? {} : JSON.parse(JSON.stringify(template))
+function nativeViewUnavailable(): EmbeddedCameraResult {
+  return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+}
+
+function cloneTemplate(template: WatermarkTemplate | null): WatermarkTemplate | null {
+  if (template == null) {
+    return null
+  }
+  return {
+    templateId: template.templateId,
+    templateName: template.templateName,
+    templateType: template.templateType,
+    mainTitleText: template.mainTitleText,
+    subtitleText: template.subtitleText,
+    mainTitleColor: template.mainTitleColor,
+    subtitleColor: template.subtitleColor,
+    mainTitleFontSize: template.mainTitleFontSize,
+    subtitleFontSize: template.subtitleFontSize,
+    mainTitleBold: template.mainTitleBold,
+    subtitleBold: template.subtitleBold,
+    imagePath: template.imagePath,
+    imageMimeType: template.imageMimeType,
+    imageWidth: template.imageWidth,
+    imageHeight: template.imageHeight,
+    imageTextGap: template.imageTextGap,
+    positionX: template.positionX,
+    positionY: template.positionY,
+    boxWidth: template.boxWidth,
+    boxHeight: template.boxHeight,
+    boxBackgroundColor: template.boxBackgroundColor,
+    boxRadius: template.boxRadius,
+    boxPadding: template.boxPadding
+  }
 }
 
 function parseResult(text: string): EmbeddedCameraResult {
@@ -77,14 +121,28 @@ function parseResult(text: string): EmbeddedCameraResult {
 
 function parsePayload(text: string): any {
   try {
-    return JSON.parse(text)
+    const payload = JSON.parse(text)
+    return payload == null ? {} : payload
   } catch (_error) {
     return {}
   }
 }
 
 function stringify(value: any): string {
-  return JSON.stringify(value == null ? {} : value)
+  const text = JSON.stringify(value == null ? {} : value)
+  return text != null ? text : '{}'
+}
+
+function optionNumber(value: number | null, fallback: number): number {
+  return value == null ? fallback : value
+}
+
+function optionZoom(value: string | null): string {
+  return value == 'wide' || value == '2x' ? value : '1x'
+}
+
+function optionFacing(value: string | null): string {
+  return value == 'front' ? 'front' : 'back'
 }
 
 export default {
@@ -137,10 +195,10 @@ export default {
     const view = new MarkVideoEmbeddedCameraView()
     view.setEventHandlers(
       (payload: string) => {
-        this.__$$emit('watermarkpositionchange', parsePayload(payload))
+        this.$emit('watermarkpositionchange', parsePayload(payload))
       },
       (payload: string) => {
-        this.__$$emit('nativeerror', parsePayload(payload))
+        this.$emit('nativeerror', parsePayload(payload))
       }
     )
     this.nativeView = view
@@ -151,8 +209,8 @@ export default {
       if (this.nativeView != null) {
         return this.nativeView
       }
-      const result = fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
-      this.__$$emit('nativeerror', {
+      const result = nativeViewUnavailable()
+      this.$emit('nativeerror', {
         errorCode: result.errorCode,
         errorMessage: result.errorMessage,
         nativeMessage: result.nativeMessage
@@ -161,23 +219,25 @@ export default {
     },
     emitIfFailed(result: EmbeddedCameraResult) {
       if (!result.success) {
-        this.__$$emit('nativeerror', {
+        this.$emit('nativeerror', {
           errorCode: result.errorCode,
           errorMessage: result.errorMessage,
           nativeMessage: result.nativeMessage
         })
       }
     },
-    mountCamera(options: any): EmbeddedCameraResult {
+    mountCamera(options: EmbeddedCameraMountOptions): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
-      const nextZoom = options.zoom == 'wide' || options.zoom == '2x' ? options.zoom : '1x'
-      const nextFacing = options.cameraFacing == 'front' ? 'front' : 'back'
-      const result = parseResult(view.mountCamera(
-        options.previewWidth ?? 0,
-        options.previewHeight ?? 0,
+      const nextZoom = optionZoom(options.zoom)
+      const nextFacing = optionFacing(options.cameraFacing)
+      const nextPreviewWidth = optionNumber(options.previewWidth, 0)
+      const nextPreviewHeight = optionNumber(options.previewHeight, 0)
+      const result = parseResult(view!.mountCamera(
+        nextPreviewWidth,
+        nextPreviewHeight,
         nextFacing,
         nextZoom,
         options.flashEnabled == true
@@ -186,45 +246,44 @@ export default {
       if (!result.success) {
         return result
       }
-      const data = result.data
       this.recording = false
       this.ready = true
-      this.zoom = data.zoom ?? nextZoom
-      this.cameraFacing = data.cameraFacing ?? nextFacing
-      this.flashEnabled = data.flashEnabled == true
-      this.previewWidth = data.previewWidth ?? 0
-      this.previewHeight = data.previewHeight ?? 0
+      this.zoom = nextZoom
+      this.cameraFacing = nextFacing
+      this.flashEnabled = options.flashEnabled == true
+      this.previewWidth = nextPreviewWidth
+      this.previewHeight = nextPreviewHeight
       return result
     },
     setWatermark(template: WatermarkTemplate): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (this.recording) {
         const blocked = fail('1403', '当前状态不允许执行该操作', 'setWatermark while recording')
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.setWatermark(stringify(template)))
+      const result = parseResult(view!.setWatermark(stringify(template)))
       this.emitIfFailed(result)
       if (!result.success) {
         return result
       }
-      this.currentTemplate = JSON.parse(JSON.stringify(template)) as WatermarkTemplate
+      this.currentTemplate = cloneTemplate(template)
       return ok({})
     },
     clearWatermark(): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (this.recording) {
         const blocked = fail('1403', '当前状态不允许执行该操作', 'clearWatermark while recording')
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.clearWatermark())
+      const result = parseResult(view!.clearWatermark())
       this.emitIfFailed(result)
       if (!result.success) {
         return result
@@ -235,35 +294,35 @@ export default {
     getWatermarkPosition(): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (!this.ready) {
         const blocked = fail('1104', '相机未挂载或未就绪')
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.getWatermarkPosition())
+      const result = parseResult(view!.getWatermarkPosition())
       this.emitIfFailed(result)
       return result
     },
-    takePhoto(_options: any): EmbeddedCameraResult {
+    takePhoto(options: EmbeddedCameraMediaOptions = {}): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (!this.ready) {
         const blocked = fail('1104', '相机未挂载或未就绪')
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.takePhoto(stringify(_options)))
+      const result = parseResult(view!.takePhoto(stringify(options)))
       this.emitIfFailed(result)
       return result
     },
-    startRecord(_options: any): EmbeddedCameraResult {
+    startRecord(options: EmbeddedCameraMediaOptions = {}): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (!this.ready) {
         const blocked = fail('1104', '相机未挂载或未就绪')
@@ -275,60 +334,60 @@ export default {
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.startRecord(stringify(_options)))
+      const result = parseResult(view!.startRecord(stringify(options)))
       this.emitIfFailed(result)
       if (!result.success) {
         return result
       }
-      this.frozenTemplate = cloneTemplate(this.currentTemplate) as WatermarkTemplate
+      this.frozenTemplate = cloneTemplate(this.currentTemplate)
       this.recording = true
       return ok({})
     },
-	    stopRecord(): EmbeddedCameraResult {
-	      const view = this.requireNativeView()
-	      if (view == null) {
-	        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
-	      }
-	      if (!this.recording) {
-	        const blocked = fail('1403', '当前状态不允许执行该操作', 'stopRecord while not recording')
-	        this.emitIfFailed(blocked)
-	        return blocked
-	      }
-	      const result = parseResult(view.stopRecord())
-	      this.emitIfFailed(result)
-	      if (!result.success) {
-	        if (result.errorCode == '1402') {
-	          this.recording = false
-	          this.frozenTemplate = null
-	        }
-	        return result
-	      }
-	      this.recording = false
-	      this.frozenTemplate = null
-	      return result
-	    },
+    stopRecord(): EmbeddedCameraResult {
+      const view = this.requireNativeView()
+      if (view == null) {
+        return nativeViewUnavailable()
+      }
+      if (!this.recording) {
+        const blocked = fail('1403', '当前状态不允许执行该操作', 'stopRecord while not recording')
+        this.emitIfFailed(blocked)
+        return blocked
+      }
+      const result = parseResult(view!.stopRecord())
+      this.emitIfFailed(result)
+      if (!result.success) {
+        if (result.errorCode == '1402') {
+          this.recording = false
+          this.frozenTemplate = null
+        }
+        return result
+      }
+      this.recording = false
+      this.frozenTemplate = null
+      return result
+    },
     switchFlash(enabled: boolean): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (!this.ready) {
         const blocked = fail('1104', '相机未挂载或未就绪')
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.switchFlash(enabled))
+      const result = parseResult(view!.switchFlash(enabled))
       this.emitIfFailed(result)
       if (!result.success) {
         return result
       }
-      this.flashEnabled = result.data.enabled == true
+      this.flashEnabled = enabled
       return result
     },
     setZoom(zoom: string): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (!this.ready) {
         const blocked = fail('1104', '相机未挂载或未就绪')
@@ -340,30 +399,30 @@ export default {
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.setZoom(zoom))
+      const result = parseResult(view!.setZoom(zoom))
       this.emitIfFailed(result)
       if (!result.success) {
         return result
       }
-      this.zoom = result.data.zoom ?? zoom
+      this.zoom = zoom
       return result
     },
     switchCamera(cameraFacing: string): EmbeddedCameraResult {
       const view = this.requireNativeView()
       if (view == null) {
-        return fail('9001', '原生相机组件不可用', 'MarkVideoEmbeddedCameraView is not loaded.')
+        return nativeViewUnavailable()
       }
       if (this.recording) {
         const blocked = fail('1403', '当前状态不允许执行该操作', 'switchCamera while recording')
         this.emitIfFailed(blocked)
         return blocked
       }
-      const result = parseResult(view.switchCamera(cameraFacing))
+      const result = parseResult(view!.switchCamera(cameraFacing))
       this.emitIfFailed(result)
       if (!result.success) {
         return result
       }
-      this.cameraFacing = result.data.cameraFacing ?? (cameraFacing == 'front' ? 'front' : 'back')
+      this.cameraFacing = optionFacing(cameraFacing)
       this.zoom = '1x'
       this.flashEnabled = false
       return result
@@ -377,7 +436,7 @@ export default {
         this.frozenTemplate = null
         return ok({})
       }
-      const result = parseResult(view.destroyCamera())
+      const result = parseResult(view!.destroyCamera())
       this.emitIfFailed(result)
       this.ready = false
       this.recording = false
