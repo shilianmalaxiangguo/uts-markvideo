@@ -12,6 +12,7 @@
       @photodone="handlePhotoDone"
       @recordstart="handleRecordStart"
       @recorddone="handleRecordDone"
+      @flashchange="handleFlashChange"
       @modechange="handleNativeMode"
       @shuttertap="handleNativeShutter"
     />
@@ -26,15 +27,24 @@
         <text class="topTitle">{{ mode === 'video' ? '视频' : '照片' }}</text>
         <text class="topSub">{{ nativeStatus }}</text>
       </cover-view>
-      <cover-view class="topSide">
+      <cover-view class="topRightSide">
+        <cover-view class="flashTapArea" @click="cycleFlashMode">
+          <cover-view :class="flashPillClass" @click="cycleFlashMode">
+            <text :class="flashIconClass" @click="cycleFlashMode">⚡</text>
+            <text :class="flashTextClass" @click="cycleFlashMode">{{ flashModeText }}</text>
+          </cover-view>
+        </cover-view>
         <cover-view class="fpsPill">
           <text class="fpsText">{{ targetFps }}fps</text>
         </cover-view>
       </cover-view>
     </cover-view>
 
-    <cover-view class="recordPill" v-if="isRecording">
-      <text class="recordText">REC</text>
+    <cover-view class="recordHud" v-if="isRecording">
+      <cover-view class="recordBubble">
+        <cover-view :class="recordDotClass"></cover-view>
+        <text class="recordHudText">{{ recordElapsedText }}</text>
+      </cover-view>
     </cover-view>
 
     <cover-view class="bottomPanel">
@@ -50,13 +60,16 @@
       </cover-view>
 
       <cover-view class="mainControls">
-        <cover-view class="resultButton">
+        <cover-view class="shutterWrap">
+          <cover-view :class="shutterClass" @click="pressShutter">
+            <cover-view :class="shutterCoreClass"></cover-view>
+            <cover-view :class="recordStopCoreClass"></cover-view>
+          </cover-view>
+        </cover-view>
+        <cover-view class="resultButton controlLeft">
           <cover-view class="resultThumb"></cover-view>
         </cover-view>
-        <cover-view :class="shutterClass" @click="pressShutter">
-          <cover-view :class="shutterCoreClass"></cover-view>
-        </cover-view>
-        <cover-view class="cameraButton" @click="restartCamera">
+        <cover-view class="cameraButton controlRight" @click="restartCamera">
           <text class="cameraIcon">↻</text>
         </cover-view>
       </cover-view>
@@ -70,10 +83,20 @@ export default {
     return {
       mode: 'photo',
       targetFps: 30,
+      flashMode: 'off',
+      flashTapAt: 0,
+      flashPending: false,
+      flashRequestSilent: false,
+      flashEventHandled: false,
+      flashEventApplied: true,
       nativeStatus: '相机初始化中',
       nativeReady: false,
       isRecording: false,
-      stopPending: false
+      stopPending: false,
+      recordStartedAt: 0,
+      recordElapsedMs: 0,
+      recordBlinkOn: true,
+      recordTimer: null
     }
   },
   computed: {
@@ -89,14 +112,51 @@ export default {
     photoModeTextClass() {
       return this.mode === 'photo' ? ['modeText', 'modeTextSelected'] : ['modeText']
     },
+    flashPillClass() {
+      return this.flashMode === 'off' ? ['flashPill'] : ['flashPill', 'flashPillActive']
+    },
+    flashIconClass() {
+      return this.flashMode === 'off' ? ['flashIcon'] : ['flashIcon', 'flashTextActive']
+    },
+    flashTextClass() {
+      return this.flashMode === 'off' ? ['flashText'] : ['flashText', 'flashTextActive']
+    },
+    flashModeText() {
+      if (this.flashMode === 'on') {
+        return '开'
+      }
+      if (this.flashMode === 'auto') {
+        return '自动'
+      }
+      return '关'
+    },
     shutterClass() {
-      return this.mode === 'video' ? ['shutter', 'shutterVideo'] : ['shutter']
+      const classes = ['shutter']
+      if (this.mode === 'video') {
+        classes.push('shutterVideo')
+      }
+      if (this.isRecording && !this.stopPending) {
+        classes.push('shutterRecording')
+      }
+      return classes
     },
     shutterCoreClass() {
       if (this.isRecording && !this.stopPending) {
         return ['shutterCore', 'shutterCoreVideo', 'shutterCoreRecording']
       }
       return this.mode === 'video' ? ['shutterCore', 'shutterCoreVideo'] : ['shutterCore']
+    },
+    recordStopCoreClass() {
+      if (this.isRecording && !this.stopPending) {
+        return ['recordStopCore', 'recordStopCoreActive']
+      }
+      return ['recordStopCore']
+    },
+    recordDotClass() {
+      return this.recordBlinkOn ? ['recordDot'] : ['recordDot', 'recordDotDim']
+    },
+    recordElapsedText() {
+      return this.formatRecordElapsed(this.recordElapsedMs)
     }
   },
   onShow() {
@@ -111,6 +171,18 @@ export default {
       }, 250)
     }
   },
+  onUnload() {
+    if (this.recordTimer !== null) {
+      clearInterval(this.recordTimer)
+      this.recordTimer = null
+    }
+  },
+  beforeDestroy() {
+    if (this.recordTimer !== null) {
+      clearInterval(this.recordTimer)
+      this.recordTimer = null
+    }
+  },
   methods: {
     resolveNativeCamera() {
       return this.$refs.nativeCamera || null
@@ -122,11 +194,35 @@ export default {
       return event || {}
     },
     normalizeNativeResult(result, fallbackMessage) {
-      if (result && result.success === true) {
-        return result
+      let nativeResult = result
+      if (typeof result === 'string') {
+        try {
+          nativeResult = JSON.parse(result)
+        } catch (error) {
+          return {
+            success: false,
+            errorCode: '9001',
+            errorMessage: fallbackMessage || '原生相机未返回有效结果',
+            nativeMessage: error && error.message ? error.message : '',
+            data: {}
+          }
+        }
       }
-      if (result && result.success === false) {
-        return result
+      if (nativeResult && typeof nativeResult.get === 'function') {
+        const rawData = nativeResult.get('data')
+        nativeResult = {
+          success: nativeResult.get('success') === true,
+          errorCode: nativeResult.get('errorCode') || '',
+          errorMessage: nativeResult.get('errorMessage') || '',
+          nativeMessage: nativeResult.get('nativeMessage') || '',
+          data: rawData || {}
+        }
+      }
+      if (nativeResult && nativeResult.success === true) {
+        return nativeResult
+      }
+      if (nativeResult && nativeResult.success === false) {
+        return nativeResult
       }
       return {
         success: false,
@@ -142,9 +238,13 @@ export default {
         this.prepareCameraPermissions()
       }, 120)
     },
-    handleCameraReady(event) {
+    async handleCameraReady(event) {
       const detail = this.eventDetail(event)
       this.nativeStatus = detail.message || '相机已准备'
+      const flashApplied = await this.syncFlashMode(this.flashMode, true)
+      if (!flashApplied) {
+        this.flashMode = 'off'
+      }
       setTimeout(() => {
         this.prepareRecordPermissions(true)
       }, 180)
@@ -174,15 +274,36 @@ export default {
     },
     handleRecordStart(event) {
       const detail = this.eventDetail(event)
+      if (!this.isRecording || this.recordTimer === null) {
+        this.startRecordingClock()
+      }
       this.isRecording = true
       this.stopPending = false
       this.nativeStatus = detail.message || '录像中'
     },
     handleRecordDone(event) {
       const detail = this.eventDetail(event)
+      this.stopRecordingClock()
       this.isRecording = false
       this.stopPending = false
       this.nativeStatus = detail.message || '视频已保存到相册'
+    },
+    handleFlashChange(event) {
+      const detail = this.eventDetail(event)
+      const silent = this.flashRequestSilent === true
+      this.flashEventHandled = true
+      this.flashEventApplied = detail.applied !== false
+      this.flashRequestSilent = false
+      if (detail.flashMode) {
+        this.flashMode = detail.flashMode
+      }
+      if (detail.applied === false && detail.requestedFlashMode !== 'off') {
+        this.nativeStatus = detail.message || '当前设备不支持该闪光灯模式'
+        return
+      }
+      if (silent !== true && detail.message) {
+        this.nativeStatus = detail.message
+      }
     },
     goBack() {
       if (this.isRecording || this.stopPending) {
@@ -196,11 +317,98 @@ export default {
         this.nativeStatus = this.stopPending ? '请等待视频保存完成' : '录像中不能切换模式'
         return
       }
+      const shouldResetFlash = mode === 'video' && this.flashMode === 'auto'
       this.mode = mode
+      if (shouldResetFlash) {
+        this.flashMode = 'off'
+      }
       const nativeCamera = this.resolveNativeCamera()
       if (nativeCamera && typeof nativeCamera.switchMode === 'function') {
         nativeCamera.switchMode(mode)
       }
+    },
+    async cycleFlashMode() {
+      if (this.flashPending) {
+        return
+      }
+      const tappedAt = Date.now()
+      if (tappedAt - this.flashTapAt < 280) {
+        return
+      }
+      this.flashTapAt = tappedAt
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : '录像中不能切换闪光灯'
+        return
+      }
+      const currentFlashMode = this.flashMode
+      const nextMode = this.nextFlashMode(currentFlashMode)
+      this.flashPending = true
+      this.nativeStatus = '闪光灯切换中'
+      this.flashMode = nextMode
+      try {
+        const applied = await this.syncFlashMode(nextMode, false)
+        if (!applied) {
+          this.flashMode = currentFlashMode
+        }
+      } finally {
+        this.flashPending = false
+      }
+    },
+    async syncFlashMode(mode, silent) {
+      const nativeCamera = this.resolveNativeCamera()
+      if (!nativeCamera || typeof nativeCamera.setFlashMode !== 'function') {
+        this.nativeStatus = '原生闪光灯接口不可用'
+        return false
+      }
+      try {
+        this.flashEventHandled = false
+        this.flashEventApplied = true
+        this.flashRequestSilent = silent === true
+        const nativeResponse = await nativeCamera.setFlashMode(mode)
+        if (typeof nativeResponse === 'number' || nativeResponse === null || nativeResponse === undefined) {
+          const eventHandled = this.flashEventHandled === true
+          const eventApplied = this.flashEventApplied === true
+          this.flashRequestSilent = false
+          if (eventHandled) {
+            return eventApplied
+          }
+          if (silent !== true) {
+            this.nativeStatus = this.flashModeLabel(mode)
+          }
+          return true
+        }
+        const result = this.normalizeNativeResult(nativeResponse, '闪光灯设置失败')
+        if (!result.success) {
+          this.nativeStatus = result.errorMessage || '闪光灯设置失败'
+          return false
+        }
+        if (result.data && result.data.applied === false && mode !== 'off') {
+          this.nativeStatus = result.data.message || '当前设备不支持该闪光灯模式'
+          return false
+        }
+        if (silent !== true) {
+          this.nativeStatus = result.data && result.data.message ? result.data.message : this.flashModeLabel(mode)
+        }
+        return true
+      } catch (error) {
+        this.nativeStatus = error && error.message ? error.message : '闪光灯设置失败'
+        return false
+      }
+    },
+    nextFlashMode(currentFlashMode) {
+      if (this.mode === 'video') {
+        return currentFlashMode === 'off' ? 'on' : 'off'
+      }
+      return currentFlashMode === 'off' ? 'on' : (currentFlashMode === 'on' ? 'auto' : 'off')
+    },
+    flashModeLabel(mode) {
+      if (mode === 'on') {
+        return '闪光灯：开'
+      }
+      if (mode === 'auto') {
+        return '闪光灯：自动'
+      }
+      return '闪光灯：关'
     },
     async pressShutter() {
       const nativeCamera = this.resolveNativeCamera()
@@ -236,9 +444,13 @@ export default {
         }
         const result = this.normalizeNativeResult(await nativeCamera.startRecord({ fps: this.targetFps }), '录像开始失败')
         if (result.success) {
-          this.isRecording = true
+          if (!this.isRecording) {
+            this.startRecordingClock()
+            this.isRecording = true
+          }
           this.nativeStatus = '录像中'
         } else {
+          this.stopRecordingClock()
           this.nativeStatus = result.errorMessage || '录像开始失败'
         }
         return
@@ -251,13 +463,46 @@ export default {
       this.isRecording = false
       this.stopPending = true
       this.nativeStatus = '正在保存视频'
-      const result = this.normalizeNativeResult(await nativeCamera.stopRecord(), '录像停止失败')
-      this.stopPending = false
-      if (result.success) {
-        this.nativeStatus = result.data && result.data.message ? result.data.message : '视频已保存到相册'
-      } else {
-        this.nativeStatus = result.errorMessage || '录像停止失败'
+      this.stopRecordingClock()
+      try {
+        const result = this.normalizeNativeResult(await nativeCamera.stopRecord(), '录像停止失败')
+        if (result.success) {
+          this.nativeStatus = result.data && result.data.message ? result.data.message : '视频已保存到相册'
+        } else {
+          this.nativeStatus = result.errorMessage || '录像停止失败'
+        }
+      } catch (error) {
+        this.nativeStatus = error && error.message ? error.message : '录像停止失败'
+      } finally {
+        this.stopPending = false
       }
+    },
+    formatRecordElapsed(elapsedMs) {
+      const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+      const minuteText = minutes < 10 ? '0' + minutes : '' + minutes
+      const secondText = seconds < 10 ? '0' + seconds : '' + seconds
+      return minuteText + ':' + secondText
+    },
+    startRecordingClock() {
+      this.stopRecordingClock()
+      this.recordStartedAt = Date.now()
+      this.recordElapsedMs = 0
+      this.recordBlinkOn = true
+      this.recordTimer = setInterval(() => {
+        this.recordElapsedMs = Date.now() - this.recordStartedAt
+        this.recordBlinkOn = !this.recordBlinkOn
+      }, 500)
+    },
+    stopRecordingClock() {
+      if (this.recordTimer !== null) {
+        clearInterval(this.recordTimer)
+        this.recordTimer = null
+      }
+      this.recordStartedAt = 0
+      this.recordElapsedMs = 0
+      this.recordBlinkOn = true
     },
     prepareCameraPermissions() {
       const nativeCamera = this.resolveNativeCamera()
@@ -273,20 +518,17 @@ export default {
     prepareRecordPermissions(silent) {
       const nativeCamera = this.resolveNativeCamera()
       if (nativeCamera && typeof nativeCamera.prepareRecordPermissions === 'function') {
-        const rawResult = nativeCamera.prepareRecordPermissions()
-        if (rawResult && rawResult.success === true) {
-          if (rawResult.data && rawResult.data.message && silent !== true) {
-            this.nativeStatus = rawResult.data.message
+        const result = this.normalizeNativeResult(nativeCamera.prepareRecordPermissions(), '请先完成录像权限授权')
+        if (result.success === true) {
+          if (result.data && result.data.message && silent !== true) {
+            this.nativeStatus = result.data.message
           }
           return true
         }
-        if (rawResult && rawResult.success === false) {
-          if (silent !== true) {
-            this.nativeStatus = rawResult.errorMessage || '请先完成录像权限授权'
-          }
-          return false
+        if (silent !== true) {
+          this.nativeStatus = result.errorMessage || '请先完成录像权限授权'
         }
-        return true
+        return false
       }
       return this.prepareCameraPermissions()
     },
@@ -346,10 +588,14 @@ export default {
 }
 
 .topSide {
-  width: 76px;
+  position: absolute;
+  left: 14px;
+  top: 30px;
+  width: 54px;
   height: 42px;
   align-items: center;
   justify-content: center;
+  z-index: 1;
 }
 
 .backButton {
@@ -371,14 +617,19 @@ export default {
 }
 
 .topTitleBox {
-  flex: 1;
-  margin-left: 12px;
-  margin-right: 12px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30px;
+  height: 42px;
   align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .topTitle {
-  width: 200px;
+  width: 180px;
   color: #111917;
   font-size: 17px;
   font-weight: 800;
@@ -388,12 +639,73 @@ export default {
 
 .topSub {
   margin-top: 3px;
-  width: 200px;
+  width: 180px;
   color: #31403a;
   font-size: 11px;
   text-align: center;
   line-height: 16px;
   lines: 1;
+}
+
+.topRightSide {
+  position: absolute;
+  right: 14px;
+  top: 30px;
+  width: 146px;
+  height: 42px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 1;
+}
+
+.flashTapArea {
+  width: 64px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+}
+
+.flashPill {
+  width: 64px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 138, 0, 0.24);
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.flashPillActive {
+  background-color: #ff8a00;
+  border-color: #ff8a00;
+}
+
+.flashIcon {
+  width: 18px;
+  height: 36px;
+  color: #111917;
+  font-size: 14px;
+  font-weight: 900;
+  text-align: center;
+  line-height: 36px;
+}
+
+.flashText {
+  width: 36px;
+  height: 36px;
+  color: #111917;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+  line-height: 36px;
+}
+
+.flashTextActive {
+  color: #ffffff;
 }
 
 .fpsPill {
@@ -415,26 +727,49 @@ export default {
   line-height: 36px;
 }
 
-.recordPill {
+.recordHud {
   position: absolute;
-  top: 104px;
-  right: 14px;
-  width: 58px;
-  height: 28px;
-  border-radius: 14px;
-  background-color: rgba(0, 0, 0, 0.52);
+  left: 0;
+  right: 0;
+  top: 108px;
+  height: 34px;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
 }
 
-.recordText {
-  width: 58px;
-  height: 28px;
-  color: #ff5a4f;
-  font-size: 12px;
+.recordBubble {
+  width: 128px;
+  height: 34px;
+  border-radius: 17px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 138, 0, 0.36);
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.recordDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background-color: #ff3b30;
+}
+
+.recordDotDim {
+  opacity: 0.46;
+}
+
+.recordHudText {
+  margin-left: 8px;
+  width: 56px;
+  height: 34px;
+  color: #111917;
+  font-size: 14px;
   font-weight: 900;
-  text-align: center;
-  line-height: 28px;
+  line-height: 34px;
 }
 
 .bottomPanel {
@@ -463,7 +798,10 @@ export default {
   height: 36px;
   padding: 3px;
   border-radius: 18px;
-  background-color: rgba(255, 255, 255, 0.72);
+  background-color: rgba(255, 138, 0, 0.14);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 138, 0, 0.2);
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
@@ -480,7 +818,7 @@ export default {
 .modeText {
   width: 82px;
   height: 30px;
-  color: #59635f;
+  color: #7a664f;
   font-size: 14px;
   font-weight: 800;
   text-align: center;
@@ -488,22 +826,45 @@ export default {
 }
 
 .modeSelected {
-  background-color: rgba(255, 255, 255, 0.96);
+  background-color: #ff8a00;
 }
 
 .modeTextSelected {
-  color: #101614;
+  color: #ffffff;
 }
 
 .mainControls {
   position: absolute;
-  left: 22px;
-  right: 22px;
+  left: 0;
+  right: 0;
   top: 62px;
+  height: 88px;
+}
+
+.shutterWrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
   height: 88px;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  z-index: 1;
+}
+
+.controlLeft {
+  position: absolute;
+  left: 22px;
+  top: 15px;
+  z-index: 2;
+}
+
+.controlRight {
+  position: absolute;
+  right: 22px;
+  top: 15px;
+  z-index: 2;
 }
 
 .resultButton,
@@ -537,22 +898,30 @@ export default {
 }
 
 .shutter {
+  position: relative;
   width: 88px;
   height: 88px;
   border-radius: 44px;
-  background-color: rgba(255, 255, 255, 0.94);
-  border-width: 0;
+  background-color: rgba(255, 255, 255, 0.42);
+  border-width: 2px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0);
+  border-color: rgba(255, 255, 255, 0.86);
   align-items: center;
   justify-content: center;
+  transition-property: background-color, border-color;
+  transition-duration: 220ms;
+  transition-timing-function: ease-out;
 }
 
 .shutterCore {
   width: 76px;
   height: 76px;
   border-radius: 38px;
-  background-color: rgba(38, 48, 44, 0.16);
+  background-color: #ffffff;
+  transform: scale(1);
+  transition-property: transform, background-color, opacity;
+  transition-duration: 220ms;
+  transition-timing-function: ease-out;
 }
 
 .shutterVideo {
@@ -561,14 +930,39 @@ export default {
   background-color: rgba(255, 59, 48, 0.2);
 }
 
+.shutterRecording {
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.3);
+  background-color: rgba(36, 36, 36, 0.78);
+}
+
 .shutterCoreVideo {
   background-color: #ff3b30;
 }
 
 .shutterCoreRecording {
-  width: 45px;
-  height: 45px;
-  border-radius: 10px;
+  opacity: 0;
+  transform: scale(0.48);
+}
+
+.recordStopCore {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background-color: #ff3b30;
+  opacity: 0;
+  transform: scale(0.58);
+  transition-property: transform, opacity, background-color;
+  transition-duration: 220ms;
+  transition-timing-function: ease-out;
+}
+
+.recordStopCoreActive {
+  opacity: 1;
+  transform: scale(1);
 }
 
 </style>

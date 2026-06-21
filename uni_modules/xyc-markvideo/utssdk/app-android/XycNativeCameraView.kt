@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.view.Gravity
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -39,6 +40,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private var activeCameraId = -1
     private var holderReady = false
     private var currentMode = "photo"
+    private var requestedFlashMode = UI_FLASH_OFF
     private var targetFps = DEFAULT_TARGET_FPS
     private var previewSize = XycSize(1280, 720)
     private var videoSize = XycSize(1280, 720)
@@ -82,6 +84,12 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     fun setMode(mode: String) {
         currentMode = if (mode == "video") "video" else "photo"
+        if (currentMode == "video" && requestedFlashMode == UI_FLASH_AUTO) {
+            requestedFlashMode = UI_FLASH_OFF
+        }
+        runOnMain {
+            applyFlashModeIfCameraOpen(false)
+        }
     }
 
     fun setTargetFps(fps: Int) {
@@ -91,6 +99,35 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     fun switchMode(mode: String): String {
         setMode(mode)
         return ok(payload().put("mode", currentMode))
+    }
+
+    fun setFlashMode(mode: String): String {
+        return runOnMainSync {
+            val previousMode = requestedFlashMode
+            val normalizedMode = normalizeFlashMode(mode)
+            if (currentMode == "video" && normalizedMode == UI_FLASH_AUTO) {
+                val data = payload()
+                    .put("flashMode", previousMode)
+                    .put("requestedFlashMode", normalizedMode)
+                    .put("applied", false)
+                    .put("message", "视频录像不支持自动闪光")
+                emit("flashchange", data)
+                return@runOnMainSync ok(data)
+            }
+            requestedFlashMode = normalizedMode
+            val applied = applyFlashModeIfCameraOpen(false)
+            if (!applied && requestedFlashMode != UI_FLASH_OFF) {
+                requestedFlashMode = previousMode
+                applyFlashModeIfCameraOpen(false)
+            }
+            val data = payload()
+                .put("flashMode", requestedFlashMode)
+                .put("requestedFlashMode", normalizedMode)
+                .put("applied", applied)
+                .put("message", if (applied) flashModeMessage(requestedFlashMode) else unsupportedFlashModeMessage(normalizedMode))
+            emit("flashchange", data)
+            ok(data)
+        }
     }
 
     fun restartCamera(): String {
@@ -162,6 +199,17 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
             photoBusy = true
             setStatus("拍照中")
+            try {
+                applyCaptureOrientation(activeCamera)
+                applyCaptureFlashMode(activeCamera)
+            } catch (throwable: Throwable) {
+                photoBusy = false
+                return@runOnMainSync failAndEmit(
+                    "1301",
+                    "拍照失败",
+                    throwable.message ?: throwable.javaClass.simpleName
+                )
+            }
             activeCamera.takePicture(null, null) { data, callbackCamera ->
                 val file = File(context.cacheDir, "xyc-markvideo-photo-${System.currentTimeMillis()}.jpg")
                 try {
@@ -219,6 +267,13 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 "相机未就绪",
                 "Preview holder is null."
             )
+            val recordingFlashError = validateRecordingFlashMode(activeCamera)
+            if (recordingFlashError != null) {
+                return@runOnMainSync failAndEmit("1102", recordingFlashError, recordingFlashError)
+            }
+            if (!applyFlashModeIfCameraOpen(false)) {
+                return@runOnMainSync failAndEmit("1102", "录像闪光灯设置失败", "录像闪光灯设置失败")
+            }
 
             val fps = parseFps(optionsJson)
             targetFps = fps
@@ -244,7 +299,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 recorder.setVideoEncodingBitRate(max(1_800_000, videoSize.width * videoSize.height * 4))
                 recorder.setAudioEncodingBitRate(64_000)
                 recorder.setAudioSamplingRate(44_100)
-                recorder.setOrientationHint(90)
+                recorder.setOrientationHint(resolveCameraRotationDegrees(activeCameraId))
                 recorder.setPreviewDisplay(holder.surface)
                 recorder.setOutputFile(file.absolutePath)
                 recorder.prepare()
@@ -364,7 +419,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         return try {
             activeCameraId = findBackCameraId()
             val activeCamera = Camera.open(activeCameraId)
-            activeCamera.setDisplayOrientation(90)
+            activeCamera.setDisplayOrientation(resolveCameraRotationDegrees(activeCameraId))
             applyCameraParameters(activeCamera)
             activeCamera.setPreviewDisplay(previewView.holder)
             activeCamera.startPreview()
@@ -400,7 +455,155 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             parameters.setRecordingHint(true)
         } catch (_: Throwable) {
         }
+        applyFlashModeToParameters(parameters, false)
         activeCamera.parameters = parameters
+    }
+
+    private fun applyFlashModeIfCameraOpen(failIfUnsupported: Boolean): Boolean {
+        val activeCamera = camera ?: return requestedFlashMode == UI_FLASH_OFF
+        return try {
+            val parameters = activeCamera.parameters
+            if (applyFlashModeToParameters(parameters, failIfUnsupported)) {
+                activeCamera.parameters = parameters
+                true
+            } else {
+                false
+            }
+        } catch (throwable: Throwable) {
+            if (failIfUnsupported) {
+                throw throwable
+            }
+            false
+        }
+    }
+
+    private fun applyFlashModeToParameters(parameters: Camera.Parameters, failIfUnsupported: Boolean): Boolean {
+        val supportedModes = parameters.supportedFlashModes
+        if (supportedModes.isNullOrEmpty()) {
+            if (requestedFlashMode != UI_FLASH_OFF && failIfUnsupported) {
+                throw IllegalStateException("Flash modes are not supported by this camera.")
+            }
+            return requestedFlashMode == UI_FLASH_OFF
+        }
+
+        val nativeMode = resolveNativeFlashMode(supportedModes)
+        if (nativeMode == null) {
+            if (requestedFlashMode != UI_FLASH_OFF && failIfUnsupported) {
+                throw IllegalStateException(
+                    "Flash mode $requestedFlashMode is not supported. Supported: ${supportedModes.joinToString(",")}"
+                )
+            }
+            return requestedFlashMode == UI_FLASH_OFF
+        }
+        parameters.flashMode = nativeMode
+        return true
+    }
+
+    private fun resolveNativeFlashMode(supportedModes: List<String>): String? {
+        return when (requestedFlashMode) {
+            UI_FLASH_ON -> {
+                val preferredMode = if (currentMode == "video") {
+                    Camera.Parameters.FLASH_MODE_TORCH
+                } else {
+                    Camera.Parameters.FLASH_MODE_ON
+                }
+                when {
+                    supportedModes.contains(preferredMode) -> preferredMode
+                    currentMode != "video" && supportedModes.contains(Camera.Parameters.FLASH_MODE_TORCH) ->
+                        Camera.Parameters.FLASH_MODE_TORCH
+                    else -> null
+                }
+            }
+            UI_FLASH_AUTO -> {
+                if (currentMode != "video" && supportedModes.contains(Camera.Parameters.FLASH_MODE_AUTO)) {
+                    Camera.Parameters.FLASH_MODE_AUTO
+                } else {
+                    null
+                }
+            }
+            else -> {
+                if (supportedModes.contains(Camera.Parameters.FLASH_MODE_OFF)) {
+                    Camera.Parameters.FLASH_MODE_OFF
+                } else {
+                    null
+                }
+            }
+        }
+    }
+
+    private fun normalizeFlashMode(mode: String): String {
+        return when (mode) {
+            UI_FLASH_ON -> UI_FLASH_ON
+            UI_FLASH_AUTO -> UI_FLASH_AUTO
+            else -> UI_FLASH_OFF
+        }
+    }
+
+    private fun flashModeMessage(mode: String): String {
+        return when (mode) {
+            UI_FLASH_ON -> "闪光灯：开"
+            UI_FLASH_AUTO -> "闪光灯：自动"
+            else -> "闪光灯：关"
+        }
+    }
+
+    private fun unsupportedFlashModeMessage(mode: String): String {
+        return when (mode) {
+            UI_FLASH_ON -> "当前设备不支持闪光灯常亮"
+            UI_FLASH_AUTO -> "当前设备不支持自动闪光灯"
+            else -> "闪光灯：关"
+        }
+    }
+
+    private fun validateRecordingFlashMode(activeCamera: Camera): String? {
+        if (requestedFlashMode == UI_FLASH_OFF) {
+            return null
+        }
+        if (requestedFlashMode == UI_FLASH_AUTO) {
+            return "视频录像不支持自动闪光"
+        }
+        val supportedModes = activeCamera.parameters.supportedFlashModes ?: return "当前设备不支持录像闪光灯"
+        if (!supportedModes.contains(Camera.Parameters.FLASH_MODE_TORCH)) {
+            return "当前设备不支持录像闪光灯常亮"
+        }
+        if (!applyFlashModeIfCameraOpen(false)) {
+            return "录像闪光灯设置失败"
+        }
+        return null
+    }
+
+    private fun applyCaptureOrientation(activeCamera: Camera) {
+        val parameters = activeCamera.parameters
+        parameters.setRotation(resolveCameraRotationDegrees(activeCameraId))
+        activeCamera.parameters = parameters
+    }
+
+    private fun applyCaptureFlashMode(activeCamera: Camera) {
+        val parameters = activeCamera.parameters
+        if (applyFlashModeToParameters(parameters, false)) {
+            activeCamera.parameters = parameters
+        }
+    }
+
+    private fun resolveCameraRotationDegrees(cameraId: Int): Int {
+        val info = Camera.CameraInfo()
+        Camera.getCameraInfo(cameraId, info)
+        val displayRotationDegrees = currentDisplayRotationDegrees()
+        return if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            (info.orientation - displayRotationDegrees + 360) % 360
+        } else {
+            (info.orientation + displayRotationDegrees) % 360
+        }
+    }
+
+    private fun currentDisplayRotationDegrees(): Int {
+        val rotation = findActivity(context)?.windowManager?.defaultDisplay?.rotation ?: Surface.ROTATION_0
+        return when (rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
     }
 
     private fun restartPreviewAfterRecord() {
@@ -495,6 +698,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         return payload()
             .put("message", "相机已准备")
             .put("mode", currentMode)
+            .put("flashMode", requestedFlashMode)
             .put("fps", targetFps)
             .put("previewWidth", previewSize.width)
             .put("previewHeight", previewSize.height)
@@ -761,6 +965,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     private companion object {
         const val DEFAULT_TARGET_FPS = 30
+        const val UI_FLASH_OFF = "off"
+        const val UI_FLASH_ON = "on"
+        const val UI_FLASH_AUTO = "auto"
         const val REQUEST_CAMERA_PERMISSION = 7201
         const val REQUEST_PREPARE_PERMISSIONS = 7204
         const val REQUEST_PREPARE_RECORD_PERMISSIONS = 7205

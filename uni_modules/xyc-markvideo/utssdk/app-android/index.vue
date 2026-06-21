@@ -6,14 +6,6 @@
   import FrameLayout from 'android.widget.FrameLayout';
   import { XycNativeCameraView } from 'uts.xyc.markvideo.android';
 
-  type NativeCameraResult = {
-    success: boolean;
-    errorCode: string;
-    errorMessage: string;
-    nativeMessage: string;
-    data: any;
-  };
-
   export default {
     name: 'xyc-markvideo',
     emits: [
@@ -23,6 +15,7 @@
       'photodone',
       'recordstart',
       'recorddone',
+      'flashchange',
       'shuttertap',
       'modechange'
     ],
@@ -72,7 +65,7 @@
         immediate: false
       }
     },
-    expose: ['setStatus', 'switchMode', 'takePhoto', 'startRecord', 'stopRecord', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
+    expose: ['setStatus', 'switchMode', 'setFlashMode', 'takePhoto', 'startRecord', 'stopRecord', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
     methods: {
       emitNativeEvent(eventName : string, payload : any) {
         if (eventName == 'cameraready') {
@@ -93,6 +86,10 @@
         }
         if (eventName == 'recorddone') {
           this.$emit('recorddone', payload);
+          return;
+        }
+        if (eventName == 'flashchange') {
+          this.$emit('flashchange', payload);
         }
       },
       resolveCameraView() : XycNativeCameraView | null {
@@ -119,70 +116,77 @@
           view.setStatus(text);
         }
       },
-      switchMode(mode : string) : NativeCameraResult {
+      switchMode(mode : string) : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = parseResult(view.switchMode(mode));
+        const result = view.switchMode(mode);
         this.$emit('modechange', { mode: mode });
         return result;
       },
-      takePhoto() : NativeCameraResult {
+      setFlashMode(mode : string) : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = parseResult(view.takePhoto());
+        return view.setFlashMode(mode);
+      },
+      takePhoto() : string {
+        const view = this.requireCameraView();
+        if (view == null) {
+          return nativeViewUnavailable();
+        }
+        const result = view.takePhoto();
         this.$emit('shuttertap', result);
         return result;
       },
-      startRecord(options : any = {}) : NativeCameraResult {
+      startRecord(options : any = {}) : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = parseResult(view.startRecord(encode(options)));
+        const result = view.startRecord(encode(options));
         this.$emit('shuttertap', result);
         return result;
       },
-      stopRecord() : NativeCameraResult {
+      stopRecord() : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = parseResult(view.stopRecord());
+        const result = view.stopRecord();
         this.$emit('shuttertap', result);
         return result;
       },
-      restartCamera() : NativeCameraResult {
+      restartCamera() : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        return parseResult(view.restartCamera());
+        return view.restartCamera();
       },
-      preparePermissions() : NativeCameraResult {
+      preparePermissions() : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        return parseResult(view.preparePermissions());
+        return view.preparePermissions();
       },
-      prepareRecordPermissions() : NativeCameraResult {
+      prepareRecordPermissions() : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        return parseResult(view.prepareRecordPermissions());
+        return view.prepareRecordPermissions();
       },
-      destroyCamera() : NativeCameraResult {
+      destroyCamera() : string {
         const view = this.resolveCameraView();
         if (view == null) {
           this.cameraViewLoaded = false;
           return ok({});
         }
-        const result = parseResult(view.destroyCamera());
+        const result = view.destroyCamera();
         this.cameraView = null;
         this.cameraViewLoaded = false;
         return result;
@@ -205,24 +209,24 @@
     }
   }
 
-  function ok(data : any) : NativeCameraResult {
-    return {
+  function ok(data : any) : string {
+    return JSON.stringify({
       success: true,
       errorCode: '',
       errorMessage: '',
       nativeMessage: '',
       data: data
-    };
+    }) ?? '{}';
   }
 
-  function nativeViewUnavailable() : NativeCameraResult {
-    return {
+  function nativeViewUnavailable() : string {
+    return JSON.stringify({
       success: false,
       errorCode: '9001',
       errorMessage: '原生相机组件不可用',
       nativeMessage: 'XycNativeCameraView is not loaded.',
       data: {}
-    };
+    }) ?? '{}';
   }
 
   function parseObject(text : string) : any {
@@ -233,9 +237,26 @@
     }
   }
 
-  function parseResult(text : string) : NativeCameraResult {
+  function parseResult(text : string) : UTSJSONObject {
     try {
-      return JSON.parse(text) as NativeCameraResult;
+      const result = JSON.parseObject(text);
+      if (result != null) {
+        const rawData = result.get('data');
+        return {
+          success: result.getBoolean('success') == true,
+          errorCode: result.getString('errorCode', ''),
+          errorMessage: result.getString('errorMessage', ''),
+          nativeMessage: result.getString('nativeMessage', ''),
+          data: rawData == null ? {} : rawData
+        };
+      }
+      return {
+        success: false,
+        errorCode: '9001',
+        errorMessage: '原生返回结构无效',
+        nativeMessage: 'JSON.parse returned null',
+        data: {}
+      };
     } catch (error) {
       return {
         success: false,
