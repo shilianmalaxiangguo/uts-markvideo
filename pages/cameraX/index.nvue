@@ -17,6 +17,49 @@
       @shuttertap="handleNativeShutter"
     />
 
+    <cover-view class="watermarkLayer" v-if="activeWatermark">
+      <cover-view
+        class="watermarkBox"
+        :style="watermarkBoxStyle"
+        @touchstart.stop="startWatermarkDrag"
+        @touchmove.stop="moveWatermark"
+        @touchend.stop="finishWatermarkEdit"
+        @touchcancel.stop="finishWatermarkEdit"
+      >
+        <cover-view class="watermarkContent" :style="watermarkContentStyle">
+          <cover-image
+            v-if="watermarkHasImage"
+            class="watermarkImage"
+            :style="watermarkImageStyle"
+            :src="activeWatermark.imagePath"
+          ></cover-image>
+          <cover-view v-if="watermarkHasText" class="watermarkTextBlock">
+            <text class="watermarkMainText" :style="watermarkMainTextStyle">{{ activeWatermark.mainTitleText }}</text>
+            <text v-if="activeWatermark.subtitleText" class="watermarkSubText" :style="watermarkSubTextStyle">{{ activeWatermark.subtitleText }}</text>
+          </cover-view>
+        </cover-view>
+        <cover-view
+          class="watermarkDelete"
+          @click.stop="clearActiveWatermark"
+          @touchstart.stop="stopWatermarkTouch"
+          @touchmove.stop="stopWatermarkTouch"
+          @touchend.stop="stopWatermarkTouch"
+          @touchcancel.stop="stopWatermarkTouch"
+        >
+          <text class="watermarkDeleteText">×</text>
+        </cover-view>
+        <cover-view
+          class="watermarkResize"
+          @touchstart.stop="startWatermarkResize"
+          @touchmove.stop="moveWatermark"
+          @touchend.stop="finishWatermarkEdit"
+          @touchcancel.stop="finishWatermarkEdit"
+        >
+          <text class="watermarkResizeText">↔</text>
+        </cover-view>
+      </cover-view>
+    </cover-view>
+
     <cover-view class="topBar">
       <cover-view class="topSide">
         <cover-view class="backButton" @click="goBack">
@@ -30,7 +73,7 @@
       <cover-view class="topRightSide">
         <cover-view class="flashTapArea" @click="cycleFlashMode">
           <cover-view :class="flashPillClass" @click="cycleFlashMode">
-            <text :class="flashIconClass" @click="cycleFlashMode">⚡</text>
+            <text :class="flashIconClass" @click="cycleFlashMode">⚡︎</text>
             <text :class="flashTextClass" @click="cycleFlashMode">{{ flashModeText }}</text>
           </cover-view>
         </cover-view>
@@ -69,8 +112,38 @@
         <cover-view class="resultButton controlLeft">
           <cover-view class="resultThumb"></cover-view>
         </cover-view>
-        <cover-view class="cameraButton controlRight" @click="restartCamera">
-          <text class="cameraIcon">↻</text>
+        <cover-view class="cameraButton controlRight" @click="openWatermarkSheet">
+          <text class="cameraIcon">印</text>
+        </cover-view>
+      </cover-view>
+    </cover-view>
+
+    <cover-view v-if="showWatermarkSheet" class="watermarkSheetMask" @click="closeWatermarkSheet">
+      <cover-view class="watermarkSheet" @click.stop>
+        <cover-view class="watermarkSheetHeader">
+          <text class="watermarkSheetTitle">水印模板</text>
+          <text class="watermarkSheetClose" @click="closeWatermarkSheet">×</text>
+        </cover-view>
+        <cover-view class="watermarkEmpty" v-if="!activeWatermark">
+          <text class="watermarkEmptyText">选择一个模板后，可在画面中拖拽、缩放、旋转。</text>
+        </cover-view>
+        <cover-view
+          v-for="template in watermarkTemplates"
+          :key="template.templateId"
+          :class="watermarkTemplateCardClass(template)"
+          @click="selectWatermarkTemplate(template)"
+        >
+          <cover-view class="watermarkPreview" :style="{ backgroundColor: template.boxBackgroundColor }">
+            <cover-image v-if="template.imagePath" class="watermarkPreviewImage" :src="template.imagePath"></cover-image>
+            <cover-view v-if="template.templateType !== 'image'" class="watermarkPreviewText">
+              <text class="watermarkPreviewTitle">{{ template.mainTitleText }}</text>
+              <text v-if="template.subtitleText" class="watermarkPreviewSub">{{ template.subtitleText }}</text>
+            </cover-view>
+          </cover-view>
+          <cover-view class="watermarkTemplateMeta">
+            <text class="watermarkTemplateName">{{ template.templateName }}</text>
+            <text class="watermarkTemplateType">{{ templateTypeLabel(template.templateType) }}</text>
+          </cover-view>
         </cover-view>
       </cover-view>
     </cover-view>
@@ -78,8 +151,11 @@
 </template>
 
 <script>
+const WATERMARK_STORAGE_KEY = 'xyc-camera-watermark-template'
+
 export default {
   data() {
+    const screen = resolveScreenBounds()
     return {
       mode: 'photo',
       targetFps: 30,
@@ -96,7 +172,22 @@ export default {
       recordStartedAt: 0,
       recordElapsedMs: 0,
       recordBlinkOn: true,
-      recordTimer: null
+      recordTimer: null,
+      showWatermarkSheet: false,
+      watermarkTemplates: createWatermarkTemplates(),
+      activeWatermark: null,
+      watermarkFrame: {
+        left: screen.width * 0.14,
+        top: screen.height * 0.18,
+        width: screen.width * 0.62,
+        height: 82,
+        scale: 1,
+        rotation: 0
+      },
+      watermarkGesture: null,
+      watermarkSyncVersion: 0,
+      screenWidth: screen.width,
+      previewHeight: screen.height
     }
   },
   computed: {
@@ -157,7 +248,64 @@ export default {
     },
     recordElapsedText() {
       return this.formatRecordElapsed(this.recordElapsedMs)
+    },
+    watermarkHasImage() {
+      return this.activeWatermark && this.activeWatermark.imagePath
+    },
+    watermarkHasText() {
+      return this.activeWatermark && (this.activeWatermark.mainTitleText || this.activeWatermark.subtitleText)
+    },
+    watermarkBoxStyle() {
+      const effectiveWidth = Math.max(1, Math.round(this.watermarkFrame.width * this.watermarkFrame.scale))
+      const effectiveHeight = Math.max(1, Math.round(this.watermarkFrame.height * this.watermarkFrame.scale))
+      return {
+        left: this.watermarkFrame.left + 'px',
+        top: this.watermarkFrame.top + 'px',
+        width: effectiveWidth + 'px',
+        height: effectiveHeight + 'px',
+        transform: 'rotate(' + this.watermarkFrame.rotation + 'deg)'
+      }
+    },
+    watermarkContentStyle() {
+      if (!this.activeWatermark) {
+        return {}
+      }
+      return {
+        backgroundColor: this.activeWatermark.boxBackgroundColor,
+        borderRadius: this.activeWatermark.boxRadius + 'px',
+        opacity: this.activeWatermark.opacity
+      }
+    },
+    watermarkImageStyle() {
+      if (!this.activeWatermark) {
+        return {}
+      }
+      return {
+        width: Math.round(this.activeWatermark.imageWidth * this.watermarkFrame.scale) + 'px',
+        height: Math.round(this.activeWatermark.imageHeight * this.watermarkFrame.scale) + 'px'
+      }
+    },
+    watermarkMainTextStyle() {
+      if (!this.activeWatermark) {
+        return {}
+      }
+      return {
+        color: this.activeWatermark.mainTitleColor,
+        fontSize: Math.round(this.activeWatermark.mainTitleFontSize * this.watermarkFrame.scale) + 'px'
+      }
+    },
+    watermarkSubTextStyle() {
+      if (!this.activeWatermark) {
+        return {}
+      }
+      return {
+        color: this.activeWatermark.subtitleColor,
+        fontSize: Math.round(this.activeWatermark.subtitleFontSize * this.watermarkFrame.scale) + 'px'
+      }
     }
+  },
+  onLoad() {
+    this.restoreWatermarkFromStorage()
   },
   onShow() {
     if (this.nativeReady) {
@@ -236,6 +384,7 @@ export default {
       this.nativeStatus = '相机组件已加载'
       setTimeout(() => {
         this.prepareCameraPermissions()
+        this.syncWatermarkToNative(false)
       }, 120)
     },
     async handleCameraReady(event) {
@@ -245,6 +394,7 @@ export default {
       if (!flashApplied) {
         this.flashMode = 'off'
       }
+      this.syncWatermarkToNative(false)
       setTimeout(() => {
         this.prepareRecordPermissions(true)
       }, 180)
@@ -253,6 +403,11 @@ export default {
       const detail = this.eventDetail(event)
       if (detail && detail.errorCode === '1501') {
         return
+      }
+      if (this.stopPending && detail && detail.errorCode && detail.errorCode.indexOf('14') === 0) {
+        this.stopRecordingClock()
+        this.isRecording = false
+        this.stopPending = false
       }
       this.nativeStatus = detail.errorMessage || '相机错误'
     },
@@ -304,6 +459,231 @@ export default {
       if (silent !== true && detail.message) {
         this.nativeStatus = detail.message
       }
+    },
+    restoreWatermarkFromStorage() {
+      const stored = uni.getStorageSync(WATERMARK_STORAGE_KEY)
+      if (stored && stored.templateId) {
+        this.applyWatermarkTemplate(stored)
+      }
+    },
+    openWatermarkSheet() {
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      this.showWatermarkSheet = true
+    },
+    closeWatermarkSheet() {
+      this.showWatermarkSheet = false
+    },
+    selectWatermarkTemplate(template) {
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      const nextTemplate = cloneTemplate(template)
+      this.applyWatermarkTemplate(nextTemplate)
+      uni.setStorageSync(WATERMARK_STORAGE_KEY, nextTemplate)
+      this.showWatermarkSheet = false
+      this.syncWatermarkToNative(false)
+    },
+    applyWatermarkTemplate(template) {
+      const nextTemplate = cloneTemplate(template)
+      this.activeWatermark = nextTemplate
+      const defaultWidth = Math.max(92, Math.round(this.screenWidth * (nextTemplate.boxWidth || 0.58)))
+      const defaultHeight = Math.max(64, Math.round(this.previewHeight * (nextTemplate.boxHeight || 0.14)))
+      this.watermarkFrame = {
+        left: this.clampNumber(this.screenWidth * (nextTemplate.positionX || 0.12), 8, this.screenWidth - defaultWidth - 8),
+        top: this.clampNumber(this.previewHeight * (nextTemplate.positionY || 0.16), 96, this.previewHeight - defaultHeight - 190),
+        width: defaultWidth,
+        height: defaultHeight,
+        scale: nextTemplate.scale || 1,
+        rotation: nextTemplate.rotation || 0
+      }
+    },
+    clearActiveWatermark() {
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      this.watermarkGesture = null
+      this.watermarkSyncVersion += 1
+      this.activeWatermark = null
+      uni.removeStorageSync(WATERMARK_STORAGE_KEY)
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera && typeof nativeCamera.clearWatermark === 'function') {
+        nativeCamera.clearWatermark()
+      }
+    },
+    stopWatermarkTouch() {
+    },
+    async syncWatermarkToNative(showError) {
+      const syncVersion = this.watermarkSyncVersion + 1
+      this.watermarkSyncVersion = syncVersion
+      const nativeCamera = this.resolveNativeCamera()
+      if (!nativeCamera || typeof nativeCamera.setWatermark !== 'function') {
+        if (showError === true) {
+          this.nativeStatus = '原生水印接口不可用'
+        }
+        return false
+      }
+      if (!this.activeWatermark) {
+        if (typeof nativeCamera.clearWatermark === 'function') {
+          nativeCamera.clearWatermark()
+        }
+        return true
+      }
+      const payload = await this.buildNativeWatermarkPayload()
+      if (syncVersion !== this.watermarkSyncVersion || !this.activeWatermark) {
+        return true
+      }
+      try {
+        const result = this.normalizeNativeResult(await nativeCamera.setWatermark(payload), '水印设置失败')
+        if (!result.success && showError === true) {
+          this.nativeStatus = result.errorMessage || '水印设置失败'
+        }
+        return result.success === true
+      } catch (error) {
+        if (showError === true) {
+          this.nativeStatus = error && error.message ? error.message : '水印设置失败'
+        }
+        return false
+      }
+    },
+    async buildNativeWatermarkPayload() {
+      const template = cloneTemplate(this.activeWatermark)
+      const effectiveWidth = Math.max(1, Math.round(this.watermarkFrame.width * this.watermarkFrame.scale))
+      const effectiveHeight = Math.max(1, Math.round(this.watermarkFrame.height * this.watermarkFrame.scale))
+      template.positionX = this.watermarkFrame.left / this.screenWidth
+      template.positionY = this.watermarkFrame.top / this.previewHeight
+      template.boxWidth = effectiveWidth / this.screenWidth
+      template.boxHeight = effectiveHeight / this.previewHeight
+      template.scale = 1
+      template.imageWidth = template.imageWidth * this.watermarkFrame.scale
+      template.imageHeight = template.imageHeight * this.watermarkFrame.scale
+      template.imageTextGap = template.imageTextGap * this.watermarkFrame.scale
+      template.mainTitleFontSize = template.mainTitleFontSize * this.watermarkFrame.scale
+      template.subtitleFontSize = template.subtitleFontSize * this.watermarkFrame.scale
+      template.boxPadding = template.boxPadding * this.watermarkFrame.scale
+      template.boxRadius = template.boxRadius * this.watermarkFrame.scale
+      template.rotation = this.watermarkFrame.rotation
+      template.previewWidth = this.screenWidth
+      template.previewHeight = this.previewHeight
+      template.nativeImagePath = await this.resolveNativeImagePath(template.imagePath)
+      return template
+    },
+    resolveNativeImagePath(path) {
+      if (!path) {
+        return Promise.resolve('')
+      }
+      return new Promise((resolve) => {
+        uni.getImageInfo({
+          src: path,
+          success: (res) => {
+            resolve(res.path || path)
+          },
+          fail: () => {
+            resolve(path)
+          }
+        })
+      })
+    },
+    startWatermarkDrag(event) {
+      if (this.isRecording || this.stopPending || !this.activeWatermark) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      const point = this.touchPoint(event)
+      this.watermarkGesture = {
+        type: 'drag',
+        startX: point.x,
+        startY: point.y,
+        left: this.watermarkFrame.left,
+        top: this.watermarkFrame.top
+      }
+    },
+    startWatermarkResize(event) {
+      if (this.isRecording || this.stopPending || !this.activeWatermark) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      const point = this.touchPoint(event)
+      const center = this.watermarkCenter()
+      this.watermarkGesture = {
+        type: 'resize',
+        centerX: center.x,
+        centerY: center.y,
+        distance: Math.max(1, distanceBetween(point.x, point.y, center.x, center.y)),
+        angle: angleBetween(point.x, point.y, center.x, center.y),
+        scale: this.watermarkFrame.scale,
+        rotation: this.watermarkFrame.rotation
+      }
+    },
+    moveWatermark(event) {
+      if (!this.watermarkGesture || !this.activeWatermark || this.isRecording || this.stopPending) {
+        return
+      }
+      const point = this.touchPoint(event)
+      if (this.watermarkGesture.type === 'drag') {
+        const nextLeft = this.watermarkGesture.left + point.x - this.watermarkGesture.startX
+        const nextTop = this.watermarkGesture.top + point.y - this.watermarkGesture.startY
+        const scaledWidth = Math.max(1, this.watermarkFrame.width * this.watermarkFrame.scale)
+        const scaledHeight = Math.max(1, this.watermarkFrame.height * this.watermarkFrame.scale)
+        this.watermarkFrame.left = this.clampNumber(nextLeft, 8, this.screenWidth - scaledWidth - 8)
+        this.watermarkFrame.top = this.clampNumber(nextTop, 96, this.previewHeight - scaledHeight - 190)
+        return
+      }
+      if (this.watermarkGesture.type === 'resize') {
+        const nextDistance = Math.max(1, distanceBetween(point.x, point.y, this.watermarkGesture.centerX, this.watermarkGesture.centerY))
+        const nextAngle = angleBetween(point.x, point.y, this.watermarkGesture.centerX, this.watermarkGesture.centerY)
+        this.watermarkFrame.scale = this.clampNumber(this.watermarkGesture.scale * (nextDistance / this.watermarkGesture.distance), 0.55, 2.2)
+        this.watermarkFrame.rotation = normalizeRotation(this.watermarkGesture.rotation + nextAngle - this.watermarkGesture.angle)
+      }
+    },
+    finishWatermarkEdit() {
+      if (!this.watermarkGesture) {
+        return
+      }
+      this.watermarkGesture = null
+      this.syncWatermarkToNative(false)
+    },
+    touchPoint(event) {
+      const touches = event && event.touches ? event.touches : []
+      const touch = touches.length > 0 ? touches[0] : {}
+      return {
+        x: touch.pageX || touch.clientX || 0,
+        y: touch.pageY || touch.clientY || 0
+      }
+    },
+    watermarkCenter() {
+      const scaledWidth = Math.max(1, this.watermarkFrame.width * this.watermarkFrame.scale)
+      const scaledHeight = Math.max(1, this.watermarkFrame.height * this.watermarkFrame.scale)
+      return {
+        x: this.watermarkFrame.left + scaledWidth / 2,
+        y: this.watermarkFrame.top + scaledHeight / 2
+      }
+    },
+    clampNumber(value, min, max) {
+      if (max < min) {
+        return min
+      }
+      return Math.min(max, Math.max(min, value))
+    },
+    watermarkTemplateCardClass(template) {
+      const classes = ['watermarkTemplateCard']
+      if (this.activeWatermark && this.activeWatermark.templateId === template.templateId) {
+        classes.push('watermarkTemplateCardActive')
+      }
+      return classes
+    },
+    templateTypeLabel(type) {
+      if (type === 'image') {
+        return '图片'
+      }
+      if (type === 'mixed') {
+        return '图文'
+      }
+      return '文字'
     },
     goBack() {
       if (this.isRecording || this.stopPending) {
@@ -422,6 +802,9 @@ export default {
           this.nativeStatus = '拍照接口不可用'
           return
         }
+        if (this.activeWatermark && !await this.syncWatermarkToNative(true)) {
+          return
+        }
         const result = this.normalizeNativeResult(await nativeCamera.takePhoto(), '拍照失败')
         if (result.success) {
           this.nativeStatus = result.data && result.data.message ? result.data.message : '拍照中'
@@ -440,6 +823,9 @@ export default {
           return
         }
         if (!this.prepareRecordPermissions()) {
+          return
+        }
+        if (this.activeWatermark && !await this.syncWatermarkToNative(true)) {
           return
         }
         const result = this.normalizeNativeResult(await nativeCamera.startRecord({ fps: this.targetFps }), '录像开始失败')
@@ -468,12 +854,15 @@ export default {
         const result = this.normalizeNativeResult(await nativeCamera.stopRecord(), '录像停止失败')
         if (result.success) {
           this.nativeStatus = result.data && result.data.message ? result.data.message : '视频已保存到相册'
+          if (this.nativeStatus !== '视频保存中') {
+            this.stopPending = false
+          }
         } else {
           this.nativeStatus = result.errorMessage || '录像停止失败'
+          this.stopPending = false
         }
       } catch (error) {
         this.nativeStatus = error && error.message ? error.message : '录像停止失败'
-      } finally {
         this.stopPending = false
       }
     },
@@ -532,17 +921,6 @@ export default {
       }
       return this.prepareCameraPermissions()
     },
-    restartCamera() {
-      if (this.isRecording || this.stopPending) {
-        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : '录像中不能重启相机'
-        return
-      }
-      const nativeCamera = this.resolveNativeCamera()
-      if (nativeCamera && typeof nativeCamera.restartCamera === 'function') {
-        const result = this.normalizeNativeResult(nativeCamera.restartCamera(), '相机重启失败')
-        this.nativeStatus = result.success ? '相机已重启' : (result.errorMessage || '相机重启失败')
-      }
-    },
     retryCameraAfterPermission() {
       if (this.isRecording || this.stopPending) {
         return
@@ -556,6 +934,132 @@ export default {
       }
     }
   }
+}
+
+function resolveScreenBounds() {
+  try {
+    const info = uni.getSystemInfoSync()
+    return {
+      width: info.windowWidth || 375,
+      height: info.windowHeight || 812
+    }
+  } catch (_) {
+    return {
+      width: 375,
+      height: 812
+    }
+  }
+}
+
+function createWatermarkTemplates() {
+  const logo = '/static/watermark/logo2.png'
+  return [
+    {
+      templateId: 'text-delivery',
+      templateName: '纯文字',
+      templateType: 'text',
+      mainTitleText: '今日水印',
+      subtitleText: 'Android 首版',
+      mainTitleColor: '#f7f7f7',
+      subtitleColor: 'rgba(255,255,255,0.82)',
+      mainTitleFontSize: 18,
+      subtitleFontSize: 12,
+      mainTitleBold: true,
+      subtitleBold: false,
+      imagePath: '',
+      imageWidth: 0,
+      imageHeight: 0,
+      imageTextGap: 0,
+      boxWidth: 0.58,
+      boxHeight: 0.14,
+      boxBackgroundColor: 'rgba(22,24,26,0.58)',
+      boxRadius: 10,
+      boxPadding: 12,
+      opacity: 0.94,
+      positionX: 0.14,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    },
+    {
+      templateId: 'image-logo',
+      templateName: '纯图片',
+      templateType: 'image',
+      mainTitleText: '',
+      subtitleText: '',
+      mainTitleColor: '#ffffff',
+      subtitleColor: '#ffffff',
+      mainTitleFontSize: 0,
+      subtitleFontSize: 0,
+      mainTitleBold: false,
+      subtitleBold: false,
+      imagePath: logo,
+      imageWidth: 72,
+      imageHeight: 72,
+      imageTextGap: 0,
+      boxWidth: 0.34,
+      boxHeight: 0.18,
+      boxBackgroundColor: 'rgba(255,255,255,0.8)',
+      boxRadius: 14,
+      boxPadding: 12,
+      opacity: 0.94,
+      positionX: 0.16,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    },
+    {
+      templateId: 'mixed-site',
+      templateName: '图文',
+      templateType: 'mixed',
+      mainTitleText: '南京西路',
+      subtitleText: '门店巡检 · 2026-06-22',
+      mainTitleColor: '#f7f7f7',
+      subtitleColor: 'rgba(255,255,255,0.82)',
+      mainTitleFontSize: 18,
+      subtitleFontSize: 12,
+      mainTitleBold: true,
+      subtitleBold: false,
+      imagePath: logo,
+      imageWidth: 36,
+      imageHeight: 36,
+      imageTextGap: 8,
+      boxWidth: 0.66,
+      boxHeight: 0.16,
+      boxBackgroundColor: 'rgba(16,18,20,0.64)',
+      boxRadius: 12,
+      boxPadding: 12,
+      opacity: 0.96,
+      positionX: 0.12,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    }
+  ]
+}
+
+function cloneTemplate(template) {
+  return JSON.parse(JSON.stringify(template))
+}
+
+function distanceBetween(x1, y1, x2, y2) {
+  const x = x1 - x2
+  const y = y1 - y2
+  return Math.sqrt(x * x + y * y)
+}
+
+function angleBetween(x1, y1, x2, y2) {
+  return Math.atan2(y1 - y2, x1 - x2) * 180 / Math.PI
+}
+
+function normalizeRotation(rotation) {
+  if (rotation > 180) {
+    return rotation - 360
+  }
+  if (rotation < -180) {
+    return rotation + 360
+  }
+  return rotation
 }
 </script>
 
@@ -573,6 +1077,100 @@ export default {
   bottom: 0;
 }
 
+.watermarkLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 176px;
+  z-index: 3;
+}
+
+.watermarkBox {
+  position: absolute;
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.86);
+}
+
+.watermarkContent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.watermarkImage {
+  width: 48px;
+  height: 48px;
+  margin-right: 8px;
+}
+
+.watermarkTextBlock {
+  flex: 1;
+}
+
+.watermarkMainText {
+  font-weight: 900;
+  line-height: 24px;
+  lines: 1;
+}
+
+.watermarkSubText {
+  margin-top: 4px;
+  line-height: 18px;
+  lines: 1;
+}
+
+.watermarkDelete {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  width: 34px;
+  height: 34px;
+  border-radius: 17px;
+  background-color: #ff4b42;
+  align-items: center;
+  justify-content: center;
+}
+
+.watermarkDeleteText {
+  width: 34px;
+  height: 34px;
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 31px;
+  text-align: center;
+}
+
+.watermarkResize {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background-color: rgba(255, 255, 255, 0.92);
+  align-items: center;
+  justify-content: center;
+}
+
+.watermarkResizeText {
+  width: 30px;
+  height: 30px;
+  color: #111917;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 30px;
+  text-align: center;
+}
+
 .topBar {
   position: absolute;
   left: 0;
@@ -585,6 +1183,7 @@ export default {
   flex-direction: row;
   align-items: center;
   background-color: rgba(255, 255, 255, 0.78);
+  z-index: 5;
 }
 
 .topSide {
@@ -624,7 +1223,6 @@ export default {
   height: 42px;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
   z-index: 0;
 }
 
@@ -673,7 +1271,7 @@ export default {
   background-color: rgba(255, 255, 255, 0.9);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 138, 0, 0.24);
+  border-color: rgba(255, 255, 255, 0.72);
   flex-direction: row;
   align-items: center;
   justify-content: center;
@@ -736,6 +1334,7 @@ export default {
   flex-direction: row;
   align-items: center;
   justify-content: center;
+  z-index: 6;
 }
 
 .recordBubble {
@@ -780,6 +1379,7 @@ export default {
   height: 176px;
   padding: 12px 22px 18px;
   background-color: rgba(245, 248, 246, 0.92);
+  z-index: 5;
 }
 
 .modeSwitchWrap {
@@ -891,7 +1491,7 @@ export default {
   width: 58px;
   height: 58px;
   color: #111917;
-  font-size: 27px;
+  font-size: 25px;
   font-weight: 900;
   text-align: center;
   line-height: 58px;
@@ -965,4 +1565,122 @@ export default {
   transform: scale(1);
 }
 
+.watermarkSheetMask {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 12px 14px;
+  background-color: rgba(0, 0, 0, 0.42);
+  justify-content: flex-end;
+  z-index: 9;
+}
+
+.watermarkSheet {
+  border-radius: 16px;
+  background-color: #f7f8f9;
+  padding: 14px;
+}
+
+.watermarkSheetHeader {
+  height: 36px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.watermarkSheetTitle {
+  color: #111917;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.watermarkSheetClose {
+  width: 30px;
+  height: 30px;
+  color: #4d5752;
+  font-size: 24px;
+  line-height: 30px;
+  text-align: center;
+}
+
+.watermarkEmpty {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background-color: rgba(255, 138, 0, 0.12);
+}
+
+.watermarkEmptyText {
+  color: #7a664f;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.watermarkTemplateCard {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background-color: #ffffff;
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(17, 25, 23, 0.08);
+}
+
+.watermarkTemplateCardActive {
+  border-color: rgba(255, 138, 0, 0.5);
+  background-color: rgba(255, 138, 0, 0.1);
+}
+
+.watermarkPreview {
+  height: 58px;
+  border-radius: 10px;
+  padding: 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.watermarkPreviewImage {
+  width: 42px;
+  height: 42px;
+  margin-right: 8px;
+}
+
+.watermarkPreviewText {
+  flex: 1;
+}
+
+.watermarkPreviewTitle {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 21px;
+}
+
+.watermarkPreviewSub {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.watermarkTemplateMeta {
+  margin-top: 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.watermarkTemplateName {
+  color: #111917;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.watermarkTemplateType {
+  color: #6b746f;
+  font-size: 12px;
+}
 </style>

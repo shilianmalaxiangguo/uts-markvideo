@@ -65,7 +65,7 @@
         immediate: false
       }
     },
-    expose: ['setStatus', 'switchMode', 'setFlashMode', 'takePhoto', 'startRecord', 'stopRecord', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
+    expose: ['setStatus', 'switchMode', 'setFlashMode', 'setWatermark', 'clearWatermark', 'takePhoto', 'startRecord', 'stopRecord', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
     methods: {
       emitNativeEvent(eventName : string, payload : any) {
         if (eventName == 'cameraready') {
@@ -131,6 +131,20 @@
           return nativeViewUnavailable();
         }
         return view.setFlashMode(mode);
+      },
+      setWatermark(template : any) : string {
+        const view = this.requireCameraView();
+        if (view == null) {
+          return nativeViewUnavailable();
+        }
+        return view.setWatermark(encode(template));
+      },
+      clearWatermark() : string {
+        const view = this.requireCameraView();
+        if (view == null) {
+          return nativeViewUnavailable();
+        }
+        return view.clearWatermark();
       },
       takePhoto() : string {
         const view = this.requireCameraView();

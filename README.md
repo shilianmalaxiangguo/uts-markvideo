@@ -1,105 +1,92 @@
 # uts-markvideo
 
-Native App MVP for testing whether a uni-app UTS plugin can open a camera,
-preview a watermark, record, stop, and return an MP4 whose frames already
-contain the watermark.
+这是一个用于验证 uni-app / UTS 相机能力的 Native App MVP：打开相机、预览水印、录制、停止，并返回已经烧录水印的本地媒体文件。
 
-## What this MVP proves
+## 当前工作流
 
-- Android App side configures watermark text and calls a UTS plugin.
-- The plugin opens a native Android camera Activity.
-- The native Activity previews camera frames with the watermark visible.
-- The Activity has start/stop recording buttons.
-- Camera frames are drawn with the watermark before being encoded by
-  `MediaCodec` + `MediaMuxer`.
-- The uni-app page receives the MP4 path and plays it for visual verification.
-- No push-stream/RTMP/WebRTC server is involved.
+- 只在 `/Users/chaixixi/od/uts-markvideo` 这个目录继续开发。
+- 当前开发分支是 `markvideo-mvp`。
+- 目前只保留 `dev`、`markvideo-mvp`、`markvideo-plugin` 三个短分支；这三个分支都从 iOS 分支基线创建。
+- 不再继续在 `/Users/chaixixi/od/uts-markvideo-android` 做功能开发；旧目录已移到 `/Users/chaixixi/od/uts-markvideo-android.backup`，只用于恢复旧 stash 或历史参考。
+- MVP 阶段的活跃实现已经切到 `uni_modules/xyc-markvideo`。
+- 旧 `uni_modules/uts-markvideo`、`pages/index/index.vue`、`pages/camera/camera.vue` 路线已经废弃，不要恢复。
+- `/Users/chaixixi/od/UniAppX-iOS@5.07/` 是本机 iOS offline SDK/demo 包，不是主源码项目。
+- 生成的 `unpackage/`、`www/` 和 offline SDK demo output 都不是源码；项目内 `uni_modules/` 在包含活跃插件实现时就是源码，应该纳入提交。
 
-This MVP is deliberately small: Android uses Camera2 `ImageReader` frames plus
-`AudioRecord`, and iOS uses AVFoundation video/audio outputs plus
-`AVAssetWriter`. Both paths aim to produce a local file with a burned-in
-watermark and microphone audio. It is meant to prove the product flow before
-replacing the frame path with a production OpenGL/CameraX/Metal pipeline.
+## MVP 验证目标
 
-## Try it
+- App 侧配置水印模板并进入相机业务页。
+- 相机业务页通过 `xyc-markvideo` UTS 标准组件接入平台原生相机能力。
+- 原生相机预览中可以看到水印。
+- 页面负责拍照、录像和保存等业务控制。
+- Android 侧当前实现包含 Camera legacy preview、`PixelCopy`、`AudioRecord`、`MediaCodec`、`MediaMuxer`。
+- iOS 侧当前只保留同名组件骨架，后续再补齐原生实现。
+- 不涉及 push-stream、RTMP、WebRTC 服务端。
 
-1. Open this `uts-markvideo` folder in HBuilderX as a uni-app project.
-2. Run to Android App.
-3. Enter watermark text on the first page.
-4. Tap the button to open the native camera recorder.
-5. In the native page, tap start, then stop.
-6. The app should receive a local MP4 path and display it in the page video
-   player. Play the MP4 and check that the watermark is burned into the video.
+这个 MVP 的目标是先证明产品闭环：水印模板、拍照、录像、保存、Android 真机体验。等流程稳定后，再考虑把 Android 帧处理替换为 OpenGL 或 CameraX effect pipeline，把 iOS 水印处理补齐并继续优化为 Metal/CoreImage 等生产方案。
 
-iOS uses the same `recordWatermarkVideo` API and opens a native AVFoundation
-recorder. Enable `camera.enablePhoto` to show the native photo button; iOS saves
-watermarked photos to the system photo library and returns their identifiers.
+## 运行方式
 
-## Important paths
+1. 用 HBuilderX 打开 `/Users/chaixixi/od/uts-markvideo`。
+2. 确认当前分支是 `markvideo-mvp`。
+3. 运行到 Android App。
+4. 在首页打开水印设置，选择纯文字、纯图片或图文模板。
+5. 进入 `cameraX` 相机业务页。
+6. 验证预览水印可拖拽、缩放、旋转、删除。
+7. 验证拍照、录像、保存后的本地媒体是否带有水印。
 
-- `pages/index/index.vue` - demo page that configures the watermark and opens
-  the recorder.
-- `docs/embedded-camera-component-prd.md` - authoritative cross-platform
-  contract for the next embedded watermark camera component.
-- `docs/api.md` - historical API migration note; not the feature checklist for
-  the new embedded camera component.
-- `uni_modules/uts-markvideo/utssdk/interface.uts` - public plugin contract.
-- `uni_modules/uts-markvideo/utssdk/app-android/index.uts` - UTS Android bridge.
-- `uni_modules/uts-markvideo/utssdk/app-android/MarkVideoNative.kt` - UTS hybrid
-  callback bridge and generated-frame encoder sample.
-- `uni_modules/uts-markvideo/utssdk/app-android/MarkVideoCameraActivity.kt` -
-  native Android camera preview, microphone capture, and record/stop MVP.
-- `uni_modules/uts-markvideo/utssdk/app-ios/MarkVideoRecorder.swift` - native
-  iOS AVFoundation camera, audio, watermark, and writer MVP.
+## 重要路径
 
-## Next step for real camera
+- `pages.json` - 页面入口配置。
+- `pages/index/index.nvue` - 首页，负责选择水印模板并进入相机流程。
+- `pages/cameraX/index.nvue` - 当前相机业务页，负责 UI、权限触发、闪光灯、拍照/录像按钮和水印交互。
+- `camera-prototype.html` - 原型参考，不是运行时代码。
+- `docs/watermark-template-camera-prd.md` - 当前 Android 水印模板相机阶段 PRD。
+- `docs/embedded-camera-component-prd.md` - 嵌入式水印相机组件的跨端长期合同。
+- `docs/api.md` - 历史 API 迁移说明，不是当前 MVP 的功能清单。
+- `uni_modules/xyc-markvideo/package.json` - UTS 标准组件插件元数据。
+- `uni_modules/xyc-markvideo/utssdk/app-android/index.vue` - Android UTS 组件桥接入口。
+- `uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt` - Android 原生相机 View，负责预览、拍照、录像、相册保存和水印烧录。
+- `uni_modules/xyc-markvideo/utssdk/app-ios/index.vue` - iOS 同名组件骨架，当前包元数据暂不声明 iOS 支持。
 
-For production, replace the CPU bitmap conversion in
-`MarkVideoCameraActivity.kt` with an OpenGL or CameraX effect pipeline, replace
-the iOS CoreGraphics watermark pass with Metal/CoreImage tuning as needed, and
-add deeper device/orientation testing.
+## 分支约定
 
-## GitHub Actions packaging
+- `dev`：阶段性集成分支。
+- `markvideo-mvp`：当前 MVP 主开发分支。
+- `markvideo-plugin`：MVP 稳定后再抽取 `uni_modules/xyc-markvideo` 的插件化分支。
+- 旧 `ios`、`android`、`android-sn9500` 分支只作为历史参考，不再作为当前主开发入口。
 
-`.github/workflows/cloud-package.yml` adds a manual GitHub Actions workflow that
-uses the official HBuilderX Linux CLI cloud packaging command:
+## GitHub Actions 打包
 
-1. Download HBuilderX Linux CLI.
-2. Run `cli open`.
-3. Log in with DCloud.
-4. Import this project.
-5. Generate a temporary `cli pack --config` JSON file.
-6. Upload generated APK/AAB/IPA/WGT artifacts from `unpackage/`.
+`.github/workflows/cloud-package.yml` 提供手动触发的 GitHub Actions 云打包流程，使用官方 HBuilderX Linux CLI：
 
-Before running it, configure repository variables:
+1. 下载 HBuilderX Linux CLI。
+2. 执行 `cli open`。
+3. 登录 DCloud。
+4. 导入当前项目。
+5. 生成临时 `cli pack --config` JSON 文件。
+6. 从 `unpackage/` 上传生成的 APK、AAB、IPA、WGT 等产物。
 
-- `ANDROID_PACKAGE_NAME`, for example `com.example.utsmarkvideo`
-- `IOS_BUNDLE_ID`, for example `com.example.utsmarkvideo`
-- `ANDROID_CERT_ALIAS`, only when using your own Android keystore
-- `IOS_SUPPORTED_DEVICE`, optional, defaults to `iPhone`
-- `IOS_CHANNELS`, optional, defaults to `phone`
-- `HBUILDERX_URL`, optional, defaults to the current official Linux CLI release
+仓库变量：
 
-Configure repository secrets:
+- `ANDROID_PACKAGE_NAME`，例如 `com.example.utsmarkvideo`
+- `IOS_BUNDLE_ID`，例如 `com.example.utsmarkvideo`
+- `ANDROID_CERT_ALIAS`，仅在使用自有 Android keystore 时需要
+- `IOS_SUPPORTED_DEVICE`，可选，默认 `iPhone`
+- `IOS_CHANNELS`，可选，默认 `phone`
+- `HBUILDERX_URL`，可选，默认使用当前官方 Linux CLI release
+
+仓库 secrets：
 
 - `DCLOUD_USERNAME`
 - `DCLOUD_PASSWORD`
-- `ANDROID_CERT_BASE64`, only when `android_pack_type` is `0`
-- `ANDROID_CERT_PASSWORD`, only when `android_pack_type` is `0`
-- `ANDROID_STORE_PASSWORD`, only when `android_pack_type` is `0`
-- `IOS_PROFILE_BASE64`, only when `ios_prisonbreak` is `false`
-- `IOS_CERT_BASE64`, only when `ios_prisonbreak` is `false`
-- `IOS_CERT_PASSWORD`, only when `ios_prisonbreak` is `false`
+- `ANDROID_CERT_BASE64`，仅当 `android_pack_type` 为 `0` 时需要
+- `ANDROID_CERT_PASSWORD`，仅当 `android_pack_type` 为 `0` 时需要
+- `ANDROID_STORE_PASSWORD`，仅当 `android_pack_type` 为 `0` 时需要
+- `IOS_PROFILE_BASE64`，仅当 `ios_prisonbreak` 为 `false` 时需要
+- `IOS_CERT_BASE64`，仅当 `ios_prisonbreak` 为 `false` 时需要
+- `IOS_CERT_PASSWORD`，仅当 `ios_prisonbreak` 为 `false` 时需要
 
-Encode certificate files with `base64 -w 0 <file>` before saving them as
-GitHub secrets. The workflow defaults to safe packaging and Android DCloud cloud
-certificate mode (`android_pack_type=3`), so you can start with Android once
-DCloud cloud certificate configuration exists for this app.
+证书文件写入 GitHub secrets 前需要先做 base64 编码。该 workflow 默认使用安全的打包配置和 Android DCloud 云证书模式，也就是 `android_pack_type=3`。
 
-For iOS device smoke testing with AltStore-style self-signing tools, run the
-workflow with `platform=ios` and keep `ios_prisonbreak=true`. In that mode the
-generated pack config requests a DCloud iOS prisonbreak package and does not
-require `IOS_PROFILE_BASE64`, `IOS_CERT_BASE64`, or `IOS_CERT_PASSWORD`. Use the
-downloaded IPA as the input to your own signing/install tool. Turn
-`ios_prisonbreak` off only when you want DCloud to sign the IPA with Apple
-certificate files stored in GitHub Secrets.
+iOS 真机烟测如果使用 AltStore 一类自签安装工具，可以运行 `platform=ios` 并保持 `ios_prisonbreak=true`。这种模式会请求 DCloud iOS prisonbreak 包，不需要 `IOS_PROFILE_BASE64`、`IOS_CERT_BASE64`、`IOS_CERT_PASSWORD`。只有需要 DCloud 使用 Apple 证书签 IPA 时，才把 `ios_prisonbreak` 关掉。

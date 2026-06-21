@@ -1,105 +1,439 @@
 <template>
   <view class="page">
-    <view class="header">
-      <text class="eyebrow">XYC MarkVideo</text>
-      <text class="title">原生相机</text>
-      <text class="subtitle">Android first MVP</text>
+    <view class="hero">
+      <text class="brand">XYC MarkVideo</text>
+      <text class="title">水印模板管理</text>
+      <text class="desc">先选模板，再进相机。照片和视频都会烧录当前水印。</text>
     </view>
 
-    <view class="summary">
-      <view class="summaryRow">
-        <text class="summaryLabel">模式</text>
-        <text class="summaryValue">照片 / 视频</text>
+    <view class="panel">
+      <view class="panelRow">
+        <text class="panelLabel">当前模板</text>
+        <text class="panelValue">{{ currentTemplate ? currentTemplate.templateName : '未选择' }}</text>
       </view>
-      <view class="summaryRow">
-        <text class="summaryLabel">录像</text>
-        <text class="summaryValue">30 fps</text>
+      <view class="panelRow">
+        <text class="panelLabel">模板类型</text>
+        <text class="panelValue">{{ currentTemplate ? templateTypeLabel(currentTemplate.templateType) : '待选择' }}</text>
+      </view>
+      <view class="panelRow">
+        <text class="panelLabel">图片资源</text>
+        <text class="panelValue">{{ currentTemplate && currentTemplate.imagePath ? 'logo2.png' : '无' }}</text>
+      </view>
+      <view class="panelRow">
+        <text class="panelLabel">录像</text>
+        <text class="panelValue">30 fps</text>
       </view>
     </view>
 
-    <button class="primaryButton" @click="openCameraX">进入相机</button>
+    <view class="actions">
+      <view class="actionButton ghostButton" @click="openWatermarkSheet">
+        <text class="actionText ghostText">水印设置</text>
+      </view>
+      <view class="actionButton primaryButton" @click="enterCamera">
+        <text class="actionText primaryText">进入相机</text>
+      </view>
+    </view>
+
+    <view v-if="showWatermarkSheet" class="sheetMask" @click="closeWatermarkSheet">
+      <view class="sheet" @click.stop>
+        <view class="sheetHeader">
+          <text class="sheetTitle">选择水印模板</text>
+          <text class="sheetClose" @click="closeWatermarkSheet">×</text>
+        </view>
+        <view class="sheetScroll">
+          <view
+            v-for="template in watermarkTemplates"
+            :key="template.templateId"
+            :class="templateCardClass(template)"
+            @click="selectWatermarkTemplate(template)"
+          >
+            <view class="templatePreview">
+              <view v-if="template.templateType !== 'image'" class="previewTextBlock">
+                <text class="previewMain" :style="{ color: template.mainTitleColor, fontSize: template.mainTitleFontSize + 'px' }">{{ template.mainTitleText }}</text>
+                <text v-if="template.subtitleText" class="previewSub" :style="{ color: template.subtitleColor, fontSize: template.subtitleFontSize + 'px' }">{{ template.subtitleText }}</text>
+              </view>
+              <view v-if="template.imagePath" class="previewImageWrap">
+                <image class="previewImage" :src="template.imagePath" mode="aspectFill"></image>
+              </view>
+            </view>
+            <view class="templateMeta">
+              <text class="templateName">{{ template.templateName }}</text>
+              <text class="templateType">{{ templateTypeLabel(template.templateType) }}</text>
+            </view>
+            <text v-if="currentTemplateId === template.templateId" class="selectedMark">已选中</text>
+          </view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <script>
+const WATERMARK_STORAGE_KEY = 'xyc-camera-watermark-template'
+
 export default {
+  data() {
+    return {
+      showWatermarkSheet: false,
+      currentTemplateId: '',
+      currentTemplate: null,
+      watermarkTemplates: createWatermarkTemplates()
+    }
+  },
+  onShow() {
+    this.restoreTemplate()
+  },
   methods: {
-    openCameraX() {
+    restoreTemplate() {
+      const stored = uni.getStorageSync(WATERMARK_STORAGE_KEY)
+      if (stored && stored.templateId) {
+        this.currentTemplateId = stored.templateId
+        this.currentTemplate = cloneTemplate(stored)
+        return
+      }
+      this.currentTemplateId = ''
+      this.currentTemplate = null
+    },
+    openWatermarkSheet() {
+      this.showWatermarkSheet = true
+    },
+    closeWatermarkSheet() {
+      this.showWatermarkSheet = false
+    },
+    selectWatermarkTemplate(template) {
+      const nextTemplate = cloneTemplate(template)
+      this.currentTemplateId = nextTemplate.templateId
+      this.currentTemplate = nextTemplate
+      uni.setStorageSync(WATERMARK_STORAGE_KEY, nextTemplate)
+      this.showWatermarkSheet = false
+    },
+    enterCamera() {
+      if (this.currentTemplate) {
+        uni.setStorageSync(WATERMARK_STORAGE_KEY, this.currentTemplate)
+      }
       uni.navigateTo({
         url: '/pages/cameraX/index'
       })
+    },
+    templateTypeLabel(type) {
+      if (type === 'image') {
+        return '图片'
+      }
+      if (type === 'mixed') {
+        return '图文'
+      }
+      return '文字'
+    },
+    templateCardClass(template) {
+      const classes = ['templateCard']
+      if (this.currentTemplateId === template.templateId) {
+        classes.push('templateCardActive')
+      }
+      return classes
     }
   }
+}
+
+function createWatermarkTemplates() {
+  const logo = '/static/watermark/logo2.png'
+  return [
+    {
+      templateId: 'text-delivery',
+      templateName: '纯文字',
+      templateType: 'text',
+      mainTitleText: '今日水印',
+      subtitleText: 'Android 首版',
+      mainTitleColor: '#f7f7f7',
+      subtitleColor: 'rgba(255,255,255,0.82)',
+      mainTitleFontSize: 18,
+      subtitleFontSize: 12,
+      mainTitleBold: true,
+      subtitleBold: false,
+      imagePath: '',
+      imageWidth: 0,
+      imageHeight: 0,
+      imageTextGap: 0,
+      boxWidth: 0.58,
+      boxHeight: 0.14,
+      boxBackgroundColor: 'rgba(22,24,26,0.58)',
+      boxRadius: 10,
+      boxPadding: 12,
+      opacity: 0.94,
+      positionX: 0.14,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    },
+    {
+      templateId: 'image-logo',
+      templateName: '纯图片',
+      templateType: 'image',
+      mainTitleText: '',
+      subtitleText: '',
+      mainTitleColor: '#ffffff',
+      subtitleColor: '#ffffff',
+      mainTitleFontSize: 0,
+      subtitleFontSize: 0,
+      mainTitleBold: false,
+      subtitleBold: false,
+      imagePath: logo,
+      imageWidth: 72,
+      imageHeight: 72,
+      imageTextGap: 0,
+      boxWidth: 0.34,
+      boxHeight: 0.18,
+      boxBackgroundColor: 'rgba(255,255,255,0.8)',
+      boxRadius: 14,
+      boxPadding: 12,
+      opacity: 0.94,
+      positionX: 0.16,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    },
+    {
+      templateId: 'mixed-site',
+      templateName: '图文',
+      templateType: 'mixed',
+      mainTitleText: '南京西路',
+      subtitleText: '门店巡检 · 2026-06-22',
+      mainTitleColor: '#f7f7f7',
+      subtitleColor: 'rgba(255,255,255,0.82)',
+      mainTitleFontSize: 18,
+      subtitleFontSize: 12,
+      mainTitleBold: true,
+      subtitleBold: false,
+      imagePath: logo,
+      imageWidth: 36,
+      imageHeight: 36,
+      imageTextGap: 8,
+      boxWidth: 0.66,
+      boxHeight: 0.16,
+      boxBackgroundColor: 'rgba(16,18,20,0.64)',
+      boxRadius: 12,
+      boxPadding: 12,
+      opacity: 0.96,
+      positionX: 0.12,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    }
+  ]
+}
+
+function cloneTemplate(template) {
+  return JSON.parse(JSON.stringify(template))
 }
 </script>
 
 <style>
 .page {
   flex: 1;
-  padding: 28px 18px;
-  background-color: #f5f8f6;
+  padding: 28px 18px 24px;
+  background-color: #f5f7f9;
 }
 
-.header {
-  margin-top: 16px;
-  margin-bottom: 22px;
+.hero {
+  margin-top: 12px;
 }
 
-.eyebrow {
-  color: #126fdb;
+.brand {
+  color: #0d72ff;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .title {
   margin-top: 6px;
   color: #17212b;
   font-size: 28px;
-  font-weight: 800;
+  font-weight: 900;
   line-height: 36px;
 }
 
-.subtitle {
-  margin-top: 6px;
-  color: #687789;
+.desc {
+  margin-top: 8px;
+  color: #5f6b75;
   font-size: 14px;
-  line-height: 22px;
+  line-height: 21px;
 }
 
-.summary {
-  padding: 14px;
-  border-width: 1px;
-  border-style: solid;
-  border-color: #d8e2dc;
-  border-radius: 8px;
+.panel {
+  margin-top: 18px;
+  padding: 14px 14px 10px;
+  border-radius: 12px;
   background-color: #ffffff;
 }
 
-.summaryRow {
+.panelRow {
   height: 36px;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
 }
 
-.summaryLabel {
-  color: #687789;
+.panelLabel {
+  color: #6a7580;
   font-size: 13px;
 }
 
-.summaryValue {
-  color: #17212b;
+.panelValue {
+  color: #18212b;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
+}
+
+.actions {
+  margin-top: 18px;
+}
+
+.actionButton {
+  height: 48px;
+  border-radius: 10px;
+  align-items: center;
+  justify-content: center;
+}
+
+.ghostButton {
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(13, 114, 255, 0.16);
+  background-color: rgba(255, 255, 255, 0.82);
 }
 
 .primaryButton {
-  height: 48px;
-  margin-top: 18px;
-  border-radius: 8px;
-  background-color: #126fdb;
-  color: white !important;
+  margin-top: 12px;
+  background-color: #0d72ff;
+}
+
+.actionText {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 900;
+}
+
+.ghostText {
+  color: #0d72ff;
+}
+
+.primaryText {
+  color: #ffffff;
+}
+
+.sheetMask {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 12px 16px;
+  background-color: rgba(0, 0, 0, 0.42);
+  justify-content: flex-end;
+}
+
+.sheet {
+  border-radius: 16px;
+  background-color: #ffffff;
+  padding: 14px;
+}
+
+.sheetHeader {
+  height: 38px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheetTitle {
+  color: #18212b;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.sheetClose {
+  width: 28px;
+  height: 28px;
+  color: #5f6b75;
+  font-size: 24px;
+  line-height: 28px;
+  text-align: center;
+}
+
+.sheetScroll {
+  margin-top: 8px;
+}
+
+.templateCard {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background-color: #f5f7f9;
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(12, 18, 25, 0.08);
+}
+
+.templateCardActive {
+  border-color: rgba(255, 138, 0, 0.44);
+  background-color: rgba(255, 138, 0, 0.1);
+}
+
+.templatePreview {
+  height: 76px;
+  flex-direction: row;
+  align-items: center;
+}
+
+.previewTextBlock {
+  flex: 1;
+}
+
+.previewMain {
+  color: #f7f7f7;
+  font-weight: 800;
+  line-height: 24px;
+}
+
+.previewSub {
+  margin-top: 4px;
+  line-height: 18px;
+}
+
+.previewImageWrap {
+  width: 72px;
+  height: 72px;
+  margin-left: 10px;
+  border-radius: 14px;
+  overflow: hidden;
+  background-color: rgba(255, 255, 255, 0.84);
+}
+
+.previewImage {
+  width: 72px;
+  height: 72px;
+}
+
+.templateMeta {
+  margin-top: 10px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.templateName {
+  color: #18212b;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.templateType {
+  color: #5f6b75;
+  font-size: 12px;
+}
+
+.selectedMark {
+  margin-top: 8px;
+  color: #ff8a00;
+  font-size: 12px;
+  font-weight: 800;
 }
 </style>

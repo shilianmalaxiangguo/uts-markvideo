@@ -32,7 +32,7 @@
 		"declaration": {
 			"ads": "无",
 			"data": "插件不采集任何数据",
-			"permissions": "Android 使用相机和麦克风权限，用于原生预览、拍照和 30fps 录像。"
+			"permissions": "Android 使用相机、麦克风权限，用于原生预览、拍照和 30fps 录像；Android 9 及以下使用写入相册权限保存媒体。"
 		},
 		"npmurl": "",
 		"darkmode": "-",
