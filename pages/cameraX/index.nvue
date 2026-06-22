@@ -14,8 +14,6 @@
       @recorddone="handleRecordDone"
       @flashchange="handleFlashChange"
       @zoomchange="handleZoomChange"
-      @modechange="handleNativeMode"
-      @shuttertap="handleNativeShutter"
     />
 
     <cover-view class="watermarkLayer" v-if="activeWatermark">
@@ -186,6 +184,7 @@
 
 <script>
 const WATERMARK_STORAGE_KEY = 'xyc-camera-watermark-template'
+const WATERMARK_HANDLE_PAD = 30
 
 export default {
   data() {
@@ -206,8 +205,11 @@ export default {
       zoomEventApplied: true,
       nativeStatus: '相机初始化中',
       nativeReady: false,
+      lastNativeError: null,
       isRecording: false,
       stopPending: false,
+      recordStartPending: false,
+      recordStartPendingTimer: null,
       recordStartedAt: 0,
       recordElapsedMs: 0,
       recordBlinkOn: true,
@@ -321,10 +323,10 @@ export default {
       const effectiveWidth = Math.max(1, Math.round(this.watermarkFrame.width * this.watermarkFrame.scale))
       const effectiveHeight = Math.max(1, Math.round(this.watermarkFrame.height * this.watermarkFrame.scale))
       return {
-        left: this.watermarkFrame.left + 'px',
-        top: this.watermarkFrame.top + 'px',
-        width: effectiveWidth + 'px',
-        height: effectiveHeight + 'px',
+        left: (this.watermarkFrame.left - WATERMARK_HANDLE_PAD) + 'px',
+        top: (this.watermarkFrame.top - WATERMARK_HANDLE_PAD) + 'px',
+        width: (effectiveWidth + WATERMARK_HANDLE_PAD * 2) + 'px',
+        height: (effectiveHeight + WATERMARK_HANDLE_PAD * 2) + 'px',
         transform: 'rotate(' + this.watermarkFrame.rotation + 'deg)'
       }
     },
@@ -335,7 +337,11 @@ export default {
       return {
         backgroundColor: this.activeWatermark.boxBackgroundColor,
         borderRadius: this.activeWatermark.boxRadius + 'px',
-        opacity: this.activeWatermark.opacity
+        opacity: this.activeWatermark.opacity,
+        left: WATERMARK_HANDLE_PAD + 'px',
+        top: WATERMARK_HANDLE_PAD + 'px',
+        right: WATERMARK_HANDLE_PAD + 'px',
+        bottom: WATERMARK_HANDLE_PAD + 'px'
       }
     },
     watermarkImageStyle() {
@@ -391,6 +397,7 @@ export default {
     }
     this.clearRecordPermissionRetry()
     this.clearRecordStartRetry()
+    this.clearRecordStartPendingTimer()
     this.clearWatermarkGestureTimer()
   },
   beforeDestroy() {
@@ -400,6 +407,7 @@ export default {
     }
     this.clearRecordPermissionRetry()
     this.clearRecordStartRetry()
+    this.clearRecordStartPendingTimer()
     this.clearWatermarkGestureTimer()
   },
   methods: {
@@ -415,16 +423,11 @@ export default {
     normalizeNativeResult(result, fallbackMessage) {
       let nativeResult = result
       if (typeof result === 'string') {
-        try {
-          nativeResult = JSON.parse(result)
-        } catch (error) {
-          return {
-            success: false,
-            errorCode: '9001',
-            errorMessage: fallbackMessage || '原生相机未返回有效结果',
-            nativeMessage: error && error.message ? error.message : '',
-            data: {}
-          }
+        nativeResult = this.parseNativeResultText(result, fallbackMessage)
+      } else if (nativeResult && typeof nativeResult.get !== 'function' && typeof nativeResult.success === 'undefined' && typeof nativeResult.toString === 'function') {
+        const nativeText = nativeResult.toString()
+        if (typeof nativeText === 'string' && nativeText.trim().indexOf('{') === 0) {
+          nativeResult = this.parseNativeResultText(nativeText, fallbackMessage)
         }
       }
       if (nativeResult && typeof nativeResult.get === 'function') {
@@ -450,6 +453,69 @@ export default {
         data: {}
       }
     },
+    parseNativeResultText(text, fallbackMessage) {
+      try {
+        return JSON.parse(text)
+      } catch (error) {
+        return {
+          success: false,
+          errorCode: '9001',
+          errorMessage: fallbackMessage || '原生相机未返回有效结果',
+          nativeMessage: error && error.message ? error.message : '',
+          data: {}
+        }
+      }
+    },
+    nativeReturnIsEmpty(result) {
+      return result === null || typeof result === 'undefined' || typeof result === 'number'
+    },
+    acceptedNativeResult(message) {
+      return {
+        success: true,
+        errorCode: '',
+        errorMessage: '',
+        nativeMessage: '',
+        data: {
+          message: message || ''
+        }
+      }
+    },
+    async normalizeNativeCommandReturn(result, fallbackMessage, acceptedMessage, watchedErrorCodes) {
+      if (this.nativeReturnIsEmpty(result)) {
+        return await this.waitForNativeCommandResult(fallbackMessage, acceptedMessage, watchedErrorCodes || [])
+      }
+      return this.normalizeNativeResult(result, fallbackMessage)
+    },
+    waitForNativeCommandResult(fallbackMessage, acceptedMessage, watchedErrorCodes) {
+      const startedAt = Date.now()
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const lastError = this.lastNativeError || null
+          if (lastError && lastError.at >= startedAt && this.nativeErrorMatches(lastError.errorCode, watchedErrorCodes)) {
+            resolve({
+              success: false,
+              errorCode: lastError.errorCode || '',
+              errorMessage: lastError.errorMessage || fallbackMessage || '原生相机未返回有效结果',
+              nativeMessage: lastError.nativeMessage || '',
+              data: {}
+            })
+            return
+          }
+          resolve(this.acceptedNativeResult(acceptedMessage))
+        }, 160)
+      })
+    },
+    nativeErrorMatches(errorCode, watchedErrorCodes) {
+      if (!watchedErrorCodes || watchedErrorCodes.length === 0) {
+        return true
+      }
+      for (let i = 0; i < watchedErrorCodes.length; i += 1) {
+        if (errorCode === watchedErrorCodes[i] || (errorCode && errorCode.indexOf(watchedErrorCodes[i]) === 0)) {
+          return true
+        }
+      }
+      return false
+    },
     handleNativeReady() {
       this.nativeReady = true
       this.nativeStatus = '相机组件已加载'
@@ -470,12 +536,18 @@ export default {
         this.zoomMode = detail.zoomMode || '1x'
       }
       this.syncWatermarkToNative(false)
-      setTimeout(() => {
-        this.prepareRecordPermissions(true)
+      setTimeout(async () => {
+        await this.prepareRecordPermissions(true)
       }, 180)
     },
     handleNativeError(event) {
       const detail = this.eventDetail(event)
+      this.lastNativeError = {
+        errorCode: detail.errorCode || '',
+        errorMessage: detail.errorMessage || '相机错误',
+        nativeMessage: detail.nativeMessage || '',
+        at: Date.now()
+      }
       if (detail && detail.errorCode === '1501') {
         return
       }
@@ -487,19 +559,13 @@ export default {
         this.isRecording = false
         this.stopPending = false
       }
+      if (this.recordStartPending) {
+        this.stopRecordingClock()
+        this.clearRecordStartPendingTimer()
+        this.recordStartPending = false
+        this.isRecording = false
+      }
       this.nativeStatus = detail.errorMessage || '相机错误'
-    },
-    handleNativeShutter(event) {
-      const detail = this.eventDetail(event)
-      if (detail.errorMessage) {
-        this.nativeStatus = detail.errorMessage
-      }
-    },
-    handleNativeMode(event) {
-      const detail = this.eventDetail(event)
-      if (detail.mode) {
-        this.mode = detail.mode
-      }
     },
     handlePhotoDone(event) {
       const detail = this.eventDetail(event)
@@ -511,6 +577,8 @@ export default {
         this.startRecordingClock()
       }
       this.isRecording = true
+      this.clearRecordStartPendingTimer()
+      this.recordStartPending = false
       this.stopPending = false
       this.nativeStatus = detail.message || '录像中'
     },
@@ -518,6 +586,8 @@ export default {
       const detail = this.eventDetail(event)
       this.stopRecordingClock()
       this.isRecording = false
+      this.clearRecordStartPendingTimer()
+      this.recordStartPending = false
       this.stopPending = false
       this.nativeStatus = detail.message || '视频已保存到相册'
     },
@@ -636,7 +706,7 @@ export default {
         return true
       }
       try {
-        const result = this.normalizeNativeResult(await nativeCamera.setWatermark(payload), '水印设置失败')
+        const result = await this.normalizeNativeCommandReturn(await nativeCamera.setWatermark(payload), '水印设置失败', '水印已更新', ['12', '14'])
         if (!result.success && showError === true) {
           this.nativeStatus = result.errorMessage || '水印设置失败'
         }
@@ -746,7 +816,8 @@ export default {
       if (this.watermarkGesture.type === 'resize') {
         const nextDistance = Math.max(1, distanceBetween(point.x, point.y, this.watermarkGesture.centerX, this.watermarkGesture.centerY))
         const nextAngle = angleBetween(point.x, point.y, this.watermarkGesture.centerX, this.watermarkGesture.centerY)
-        const nextScale = this.clampNumber(this.watermarkGesture.scale * (nextDistance / this.watermarkGesture.distance), 0.55, 2.2)
+        const maxScale = this.maxWatermarkScale()
+        const nextScale = this.clampNumber(this.watermarkGesture.scale * (nextDistance / this.watermarkGesture.distance), 0.55, maxScale)
         const scaledWidth = Math.max(1, this.watermarkFrame.width * nextScale)
         const scaledHeight = Math.max(1, this.watermarkFrame.height * nextScale)
         this.watermarkFrame.scale = nextScale
@@ -878,6 +949,11 @@ export default {
         x: this.watermarkFrame.left + scaledWidth / 2,
         y: this.watermarkFrame.top + scaledHeight / 2
       }
+    },
+    maxWatermarkScale() {
+      const maxWidthScale = (this.screenWidth - 16) / Math.max(1, this.watermarkFrame.width)
+      const maxHeightScale = (this.previewHeight - 286) / Math.max(1, this.watermarkFrame.height)
+      return Math.max(0.55, Math.min(2.2, maxWidthScale, maxHeightScale))
     },
     clampNumber(value, min, max) {
       if (max < min) {
@@ -1101,7 +1177,7 @@ export default {
         if (this.activeWatermark && !await this.syncWatermarkToNative(true)) {
           return
         }
-        const result = this.normalizeNativeResult(await nativeCamera.takePhoto(), '拍照失败')
+        const result = await this.normalizeNativeCommandReturn(await nativeCamera.takePhoto(), '拍照失败', '拍照中', ['10', '11', '13', '14'])
         if (result.success) {
           this.nativeStatus = result.data && result.data.message ? result.data.message : '拍照中'
         } else {
@@ -1111,6 +1187,9 @@ export default {
       }
 
       if (!this.isRecording) {
+        if (this.recordStartPending) {
+          return
+        }
         if (this.stopPending) {
           return
         }
@@ -1118,7 +1197,7 @@ export default {
           this.nativeStatus = '录像接口不可用'
           return
         }
-        if (!this.prepareRecordPermissions()) {
+        if (!await this.prepareRecordPermissions()) {
           this.recordStartAfterPermission = true
           this.scheduleRecordPermissionRetry()
           return
@@ -1128,15 +1207,22 @@ export default {
         if (this.activeWatermark && !await this.syncWatermarkToNative(true)) {
           return
         }
-        const result = this.normalizeNativeResult(await nativeCamera.startRecord({ fps: this.targetFps }), '录像开始失败')
+        this.recordStartPending = true
+        this.startRecordPendingTimeout()
+        const recordResponse = await nativeCamera.startRecord({ fps: this.targetFps })
+        const result = await this.normalizeNativeCommandReturn(recordResponse, '录像开始失败', '录像启动中', ['10', '11', '14'])
         if (result.success) {
-          if (!this.isRecording) {
+          if (!this.isRecording && !this.nativeReturnIsEmpty(recordResponse)) {
             this.startRecordingClock()
             this.isRecording = true
+            this.clearRecordStartPendingTimer()
+            this.recordStartPending = false
           }
-          this.nativeStatus = '录像中'
+          this.nativeStatus = this.nativeReturnIsEmpty(recordResponse) ? '录像启动中' : '录像中'
         } else {
           this.stopRecordingClock()
+          this.clearRecordStartPendingTimer()
+          this.recordStartPending = false
           this.nativeStatus = result.errorMessage || '录像开始失败'
         }
         return
@@ -1151,10 +1237,11 @@ export default {
       this.nativeStatus = '正在保存视频'
       this.stopRecordingClock()
       try {
-        const result = this.normalizeNativeResult(await nativeCamera.stopRecord(), '录像停止失败')
+        const stopResponse = await nativeCamera.stopRecord()
+        const result = await this.normalizeNativeCommandReturn(stopResponse, '录像停止失败', '视频保存中', ['14'])
         if (result.success) {
           this.nativeStatus = result.data && result.data.message ? result.data.message : '视频已保存到相册'
-          if (this.nativeStatus !== '视频保存中') {
+          if (this.nativeStatus !== '视频保存中' && !this.nativeReturnIsEmpty(stopResponse)) {
             this.stopPending = false
           }
         } else {
@@ -1206,6 +1293,23 @@ export default {
         this.recordStartRetryTimer = null
       }
     },
+    clearRecordStartPendingTimer() {
+      if (this.recordStartPendingTimer !== null) {
+        clearTimeout(this.recordStartPendingTimer)
+        this.recordStartPendingTimer = null
+      }
+    },
+    startRecordPendingTimeout() {
+      this.clearRecordStartPendingTimer()
+      this.recordStartPendingTimer = setTimeout(() => {
+        this.recordStartPendingTimer = null
+        if (this.recordStartPending && !this.isRecording) {
+          this.recordStartPending = false
+          this.stopRecordingClock()
+          this.nativeStatus = '录像启动超时，请重试'
+        }
+      }, 3200)
+    },
     scheduleRecordPermissionRetry() {
       if (!this.recordStartAfterPermission || this.recordPermissionRetryTimer !== null) {
         return
@@ -1214,7 +1318,7 @@ export default {
       if (!nativeCamera || typeof nativeCamera.prepareRecordPermissions !== 'function') {
         return
       }
-      this.recordPermissionRetryTimer = setTimeout(() => {
+      this.recordPermissionRetryTimer = setTimeout(async () => {
         this.recordPermissionRetryTimer = null
         if (!this.recordStartAfterPermission || this.isRecording || this.stopPending || this.mode !== 'video') {
           this.clearRecordPermissionRetry()
@@ -1222,7 +1326,7 @@ export default {
           return
         }
         this.recordPermissionRetryCount += 1
-        const ready = this.prepareRecordPermissions(true)
+        const ready = await this.prepareRecordPermissions(true)
         if (ready) {
           this.clearRecordPermissionRetry()
           this.recordStartAfterPermission = false
@@ -1257,10 +1361,10 @@ export default {
       }
       return false
     },
-    prepareRecordPermissions(silent) {
+    async prepareRecordPermissions(silent) {
       const nativeCamera = this.resolveNativeCamera()
       if (nativeCamera && typeof nativeCamera.prepareRecordPermissions === 'function') {
-        const result = this.normalizeNativeResult(nativeCamera.prepareRecordPermissions(), '请先完成录像权限授权')
+        const result = await this.normalizeNativeCommandReturn(nativeCamera.prepareRecordPermissions(), '请先完成录像权限授权', '录像权限已准备', ['10'])
         if (result.success === true) {
           this.clearRecordPermissionRetry()
           if (result.data && result.data.message && silent !== true) {
@@ -1442,9 +1546,6 @@ function normalizeRotation(rotation) {
 
 .watermarkBox {
   position: absolute;
-  border-width: 1px;
-  border-style: solid;
-  border-color: rgba(255, 255, 255, 0.86);
 }
 
 .watermarkContent {
@@ -1457,6 +1558,9 @@ function normalizeRotation(rotation) {
   flex-direction: row;
   align-items: center;
   justify-content: center;
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.86);
   z-index: 1;
 }
 
@@ -1494,11 +1598,11 @@ function normalizeRotation(rotation) {
 
 .watermarkDelete {
   position: absolute;
-  right: -1px;
-  top: -1px;
-  width: 34px;
-  height: 34px;
-  border-radius: 17px;
+  right: 9px;
+  top: 9px;
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
   background-color: #ff4b42;
   align-items: center;
   justify-content: center;
@@ -1506,19 +1610,19 @@ function normalizeRotation(rotation) {
 }
 
 .watermarkDeleteText {
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   color: #ffffff;
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 900;
-  line-height: 31px;
+  line-height: 39px;
   text-align: center;
 }
 
 .watermarkResize {
   position: absolute;
-  right: 0;
-  bottom: 0;
+  right: 3px;
+  bottom: 3px;
   width: 54px;
   height: 54px;
   border-radius: 27px;

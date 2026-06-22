@@ -16,9 +16,7 @@
       'recordstart',
       'recorddone',
       'flashchange',
-      'zoomchange',
-      'shuttertap',
-      'modechange'
+      'zoomchange'
     ],
     props: {
       mode: {
@@ -126,9 +124,7 @@
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = view.switchMode(mode);
-        this.$emit('modechange', { mode: mode });
-        return result;
+        return view.switchMode(mode);
       },
       setFlashMode(mode : string) : string {
         const view = this.requireCameraView();
@@ -163,27 +159,21 @@
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = view.takePhoto();
-        this.$emit('shuttertap', result);
-        return result;
+        return view.takePhoto();
       },
       startRecord(options : any = {}) : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = view.startRecord(encode(options));
-        this.$emit('shuttertap', result);
-        return result;
+        return view.startRecord(encode(options));
       },
       stopRecord() : string {
         const view = this.requireCameraView();
         if (view == null) {
           return nativeViewUnavailable();
         }
-        const result = view.stopRecord();
-        this.$emit('shuttertap', result);
-        return result;
+        return view.stopRecord();
       },
       restartCamera() : string {
         const view = this.requireCameraView();
