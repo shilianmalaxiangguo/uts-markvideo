@@ -20,10 +20,6 @@
       <cover-view
         class="watermarkBox"
         :style="watermarkBoxStyle"
-        @touchstart.stop="startWatermarkDrag"
-        @touchmove.stop="moveWatermark"
-        @touchend.stop="finishWatermarkEdit"
-        @touchcancel.stop="finishWatermarkEdit"
       >
         <cover-view
           class="watermarkContent"
@@ -46,6 +42,7 @@
         </cover-view>
         <cover-view
           class="watermarkDragHotspot"
+          :style="watermarkHotspotStyle"
           @touchstart.stop="startWatermarkDrag"
           @touchmove.stop="moveWatermark"
           @touchend.stop="finishWatermarkEdit"
@@ -138,7 +135,6 @@
         <cover-view class="shutterWrap">
           <cover-view :class="shutterClass" @click="pressShutter">
             <cover-view :class="shutterCoreClass"></cover-view>
-            <cover-view :class="recordStopCoreClass"></cover-view>
           </cover-view>
         </cover-view>
         <cover-view class="resultButton controlLeft">
@@ -210,6 +206,7 @@ export default {
       stopPending: false,
       recordStartPending: false,
       recordStartPendingTimer: null,
+      recordStopPendingTimer: null,
       recordStartedAt: 0,
       recordElapsedMs: 0,
       recordBlinkOn: true,
@@ -301,12 +298,6 @@ export default {
       }
       return this.mode === 'video' ? ['shutterCore', 'shutterCoreVideo'] : ['shutterCore']
     },
-    recordStopCoreClass() {
-      if (this.isRecording && !this.stopPending) {
-        return ['recordStopCore', 'recordStopCoreActive']
-      }
-      return ['recordStopCore']
-    },
     recordDotClass() {
       return this.recordBlinkOn ? ['recordDot'] : ['recordDot', 'recordDotDim']
     },
@@ -327,6 +318,7 @@ export default {
         top: (this.watermarkFrame.top - WATERMARK_HANDLE_PAD) + 'px',
         width: (effectiveWidth + WATERMARK_HANDLE_PAD * 2) + 'px',
         height: (effectiveHeight + WATERMARK_HANDLE_PAD * 2) + 'px',
+        transformOrigin: '0% 0%',
         transform: 'rotate(' + this.watermarkFrame.rotation + 'deg)'
       }
     },
@@ -338,6 +330,14 @@ export default {
         backgroundColor: this.activeWatermark.boxBackgroundColor,
         borderRadius: this.activeWatermark.boxRadius + 'px',
         opacity: this.activeWatermark.opacity,
+        left: WATERMARK_HANDLE_PAD + 'px',
+        top: WATERMARK_HANDLE_PAD + 'px',
+        right: WATERMARK_HANDLE_PAD + 'px',
+        bottom: WATERMARK_HANDLE_PAD + 'px'
+      }
+    },
+    watermarkHotspotStyle() {
+      return {
         left: WATERMARK_HANDLE_PAD + 'px',
         top: WATERMARK_HANDLE_PAD + 'px',
         right: WATERMARK_HANDLE_PAD + 'px',
@@ -398,6 +398,7 @@ export default {
     this.clearRecordPermissionRetry()
     this.clearRecordStartRetry()
     this.clearRecordStartPendingTimer()
+    this.clearRecordStopPendingTimer()
     this.clearWatermarkGestureTimer()
   },
   beforeDestroy() {
@@ -408,6 +409,7 @@ export default {
     this.clearRecordPermissionRetry()
     this.clearRecordStartRetry()
     this.clearRecordStartPendingTimer()
+    this.clearRecordStopPendingTimer()
     this.clearWatermarkGestureTimer()
   },
   methods: {
@@ -556,6 +558,7 @@ export default {
       }
       if (this.stopPending && detail && detail.errorCode && detail.errorCode.indexOf('14') === 0) {
         this.stopRecordingClock()
+        this.clearRecordStopPendingTimer()
         this.isRecording = false
         this.stopPending = false
       }
@@ -588,6 +591,7 @@ export default {
       this.isRecording = false
       this.clearRecordStartPendingTimer()
       this.recordStartPending = false
+      this.clearRecordStopPendingTimer()
       this.stopPending = false
       this.nativeStatus = detail.message || '视频已保存到相册'
     },
@@ -684,6 +688,16 @@ export default {
       }
     },
     stopWatermarkTouch() {
+    },
+    updateWatermarkFrame(patch) {
+      this.watermarkFrame = {
+        left: typeof patch.left === 'number' ? patch.left : this.watermarkFrame.left,
+        top: typeof patch.top === 'number' ? patch.top : this.watermarkFrame.top,
+        width: typeof patch.width === 'number' ? patch.width : this.watermarkFrame.width,
+        height: typeof patch.height === 'number' ? patch.height : this.watermarkFrame.height,
+        scale: typeof patch.scale === 'number' ? patch.scale : this.watermarkFrame.scale,
+        rotation: typeof patch.rotation === 'number' ? patch.rotation : this.watermarkFrame.rotation
+      }
     },
     async syncWatermarkToNative(showError) {
       const syncVersion = this.watermarkSyncVersion + 1
@@ -783,14 +797,16 @@ export default {
         return
       }
       const point = this.touchPoint(event)
-      const center = this.watermarkCenter()
+      const anchor = this.watermarkResizeAnchor()
       this.clearWatermarkGestureTimer()
       this.watermarkGesture = {
         type: 'resize',
-        centerX: center.x,
-        centerY: center.y,
-        distance: Math.max(1, distanceBetween(point.x, point.y, center.x, center.y)),
-        angle: angleBetween(point.x, point.y, center.x, center.y),
+        anchorX: anchor.x,
+        anchorY: anchor.y,
+        distance: Math.max(1, distanceBetween(point.x, point.y, anchor.x, anchor.y)),
+        angle: angleBetween(point.x, point.y, anchor.x, anchor.y),
+        left: this.watermarkFrame.left,
+        top: this.watermarkFrame.top,
         scale: this.watermarkFrame.scale,
         rotation: this.watermarkFrame.rotation,
         currentX: point.x,
@@ -808,22 +824,24 @@ export default {
         const nextTop = this.watermarkGesture.top + point.y - this.watermarkGesture.startY
         const scaledWidth = Math.max(1, this.watermarkFrame.width * this.watermarkFrame.scale)
         const scaledHeight = Math.max(1, this.watermarkFrame.height * this.watermarkFrame.scale)
-        this.watermarkFrame.left = this.clampNumber(nextLeft, 8, this.screenWidth - scaledWidth - 8)
-        this.watermarkFrame.top = this.clampNumber(nextTop, 96, this.previewHeight - scaledHeight - 190)
+        this.updateWatermarkFrame({
+          left: this.clampNumber(nextLeft, 8, this.screenWidth - scaledWidth - 8),
+          top: this.clampNumber(nextTop, 96, this.previewHeight - scaledHeight - 190)
+        })
         this.watermarkGesture.changed = true
         return
       }
       if (this.watermarkGesture.type === 'resize') {
-        const nextDistance = Math.max(1, distanceBetween(point.x, point.y, this.watermarkGesture.centerX, this.watermarkGesture.centerY))
-        const nextAngle = angleBetween(point.x, point.y, this.watermarkGesture.centerX, this.watermarkGesture.centerY)
-        const maxScale = this.maxWatermarkScale()
+        const nextDistance = Math.max(1, distanceBetween(point.x, point.y, this.watermarkGesture.anchorX, this.watermarkGesture.anchorY))
+        const nextAngle = angleBetween(point.x, point.y, this.watermarkGesture.anchorX, this.watermarkGesture.anchorY)
+        const maxScale = this.maxWatermarkScale(this.watermarkGesture.left, this.watermarkGesture.top)
         const nextScale = this.clampNumber(this.watermarkGesture.scale * (nextDistance / this.watermarkGesture.distance), 0.55, maxScale)
-        const scaledWidth = Math.max(1, this.watermarkFrame.width * nextScale)
-        const scaledHeight = Math.max(1, this.watermarkFrame.height * nextScale)
-        this.watermarkFrame.scale = nextScale
-        this.watermarkFrame.rotation = normalizeRotation(this.watermarkGesture.rotation + nextAngle - this.watermarkGesture.angle)
-        this.watermarkFrame.left = this.clampNumber(this.watermarkGesture.centerX - scaledWidth / 2, 8, this.screenWidth - scaledWidth - 8)
-        this.watermarkFrame.top = this.clampNumber(this.watermarkGesture.centerY - scaledHeight / 2, 96, this.previewHeight - scaledHeight - 190)
+        this.updateWatermarkFrame({
+          scale: nextScale,
+          rotation: normalizeRotation(this.watermarkGesture.rotation + nextAngle - this.watermarkGesture.angle),
+          left: this.watermarkGesture.left,
+          top: this.watermarkGesture.top
+        })
         this.watermarkGesture.changed = true
       }
     },
@@ -950,10 +968,20 @@ export default {
         y: this.watermarkFrame.top + scaledHeight / 2
       }
     },
-    maxWatermarkScale() {
+    watermarkResizeAnchor() {
+      return {
+        x: this.watermarkFrame.left,
+        y: this.watermarkFrame.top
+      }
+    },
+    maxWatermarkScale(left, top) {
+      const frameLeft = typeof left === 'number' ? left : this.watermarkFrame.left
+      const frameTop = typeof top === 'number' ? top : this.watermarkFrame.top
       const maxWidthScale = (this.screenWidth - 16) / Math.max(1, this.watermarkFrame.width)
       const maxHeightScale = (this.previewHeight - 286) / Math.max(1, this.watermarkFrame.height)
-      return Math.max(0.55, Math.min(2.2, maxWidthScale, maxHeightScale))
+      const maxRightScale = (this.screenWidth - frameLeft - 8) / Math.max(1, this.watermarkFrame.width)
+      const maxBottomScale = (this.previewHeight - frameTop - 190) / Math.max(1, this.watermarkFrame.height)
+      return Math.max(0.55, Math.min(2.2, maxWidthScale, maxHeightScale, maxRightScale, maxBottomScale))
     },
     clampNumber(value, min, max) {
       if (max < min) {
@@ -1235,20 +1263,24 @@ export default {
       this.isRecording = false
       this.stopPending = true
       this.nativeStatus = '正在保存视频'
+      this.startRecordStopPendingTimeout()
       this.stopRecordingClock()
       try {
         const stopResponse = await nativeCamera.stopRecord()
         const result = await this.normalizeNativeCommandReturn(stopResponse, '录像停止失败', '视频保存中', ['14'])
         if (result.success) {
           this.nativeStatus = result.data && result.data.message ? result.data.message : '视频已保存到相册'
-          if (this.nativeStatus !== '视频保存中' && !this.nativeReturnIsEmpty(stopResponse)) {
+          if (this.nativeStatus !== '视频保存中') {
+            this.clearRecordStopPendingTimer()
             this.stopPending = false
           }
         } else {
+          this.clearRecordStopPendingTimer()
           this.nativeStatus = result.errorMessage || '录像停止失败'
           this.stopPending = false
         }
       } catch (error) {
+        this.clearRecordStopPendingTimer()
         this.nativeStatus = error && error.message ? error.message : '录像停止失败'
         this.stopPending = false
       }
@@ -1299,6 +1331,12 @@ export default {
         this.recordStartPendingTimer = null
       }
     },
+    clearRecordStopPendingTimer() {
+      if (this.recordStopPendingTimer !== null) {
+        clearTimeout(this.recordStopPendingTimer)
+        this.recordStopPendingTimer = null
+      }
+    },
     startRecordPendingTimeout() {
       this.clearRecordStartPendingTimer()
       this.recordStartPendingTimer = setTimeout(() => {
@@ -1309,6 +1347,18 @@ export default {
           this.nativeStatus = '录像启动超时，请重试'
         }
       }, 3200)
+    },
+    startRecordStopPendingTimeout() {
+      this.clearRecordStopPendingTimer()
+      this.recordStopPendingTimer = setTimeout(() => {
+        this.recordStopPendingTimer = null
+        if (this.stopPending) {
+          this.stopPending = false
+          if (this.nativeStatus === '正在保存视频' || this.nativeStatus === '视频保存中') {
+            this.nativeStatus = '视频已保存到相册'
+          }
+        }
+      }, 4500)
     },
     scheduleRecordPermissionRetry() {
       if (!this.recordStartAfterPermission || this.recordPermissionRetryTimer !== null) {
@@ -1566,10 +1616,6 @@ function normalizeRotation(rotation) {
 
 .watermarkDragHotspot {
   position: absolute;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
   background-color: rgba(255, 255, 255, 0.01);
   z-index: 2;
 }
@@ -1621,11 +1667,11 @@ function normalizeRotation(rotation) {
 
 .watermarkResize {
   position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 54px;
-  height: 54px;
-  border-radius: 27px;
+  right: 9px;
+  bottom: 9px;
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
   background-color: rgba(255, 255, 255, 0.92);
   align-items: center;
   justify-content: center;
@@ -1633,12 +1679,12 @@ function normalizeRotation(rotation) {
 }
 
 .watermarkResizeText {
-  width: 54px;
-  height: 54px;
+  width: 42px;
+  height: 42px;
   color: #111917;
-  font-size: 25px;
+  font-size: 21px;
   font-weight: 900;
-  line-height: 54px;
+  line-height: 42px;
   text-align: center;
 }
 
@@ -2035,7 +2081,7 @@ function normalizeRotation(rotation) {
   border-radius: 38px;
   background-color: #ffffff;
   transform: scale(1);
-  transition-property: transform, background-color, opacity;
+  transition-property: transform, background-color, border-radius;
   transition-duration: 220ms;
   transition-timing-function: ease-out;
 }
@@ -2057,28 +2103,8 @@ function normalizeRotation(rotation) {
 }
 
 .shutterCoreRecording {
-  opacity: 0;
-  transform: scale(0.48);
-}
-
-.recordStopCore {
-  position: absolute;
-  left: 20px;
-  top: 20px;
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  background-color: #ff3b30;
-  opacity: 0;
-  transform: scale(0.58);
-  transition-property: transform, opacity, background-color;
-  transition-duration: 220ms;
-  transition-timing-function: ease-out;
-}
-
-.recordStopCoreActive {
-  opacity: 1;
-  transform: scale(1);
+  border-radius: 14px;
+  transform: scale(0.6);
 }
 
 .watermarkSheetMask {
