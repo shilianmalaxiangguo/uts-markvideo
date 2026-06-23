@@ -14,6 +14,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.hardware.Camera
@@ -87,6 +88,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private var activeWatermarkBitmap: Bitmap? = null
     private var recordingWatermarkSnapshot: NativeWatermark? = null
     private var recordingWatermarkBitmap: Bitmap? = null
+    private var recordingWatermarkOverlay: WatermarkOverlay? = null
     private var recordingVideoBurnIn = false
     @Volatile private var recordingFrameError = false
     @Volatile private var recordingFrameErrorStage = ""
@@ -454,6 +456,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             targetFps = fps
             val frozenWatermark = activeWatermark
             var frozenWatermarkBitmap: Bitmap? = null
+            var frozenWatermarkOverlay: WatermarkOverlay? = null
             var outputTarget: VideoOutputTarget? = null
 
             try {
@@ -461,6 +464,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 outputTarget = recordTarget
                 frozenWatermarkBitmap = copyOrDecodeWatermarkBitmap(frozenWatermark, activeWatermarkBitmap)
                 val recordingSize = chooseRecordingOutputSize()
+                frozenWatermarkOverlay = createVideoWatermarkOverlay(recordingSize, frozenWatermark, frozenWatermarkBitmap)
                 val recorder = CameraMp4Recorder(
                     outputFile = recordTarget.file,
                     outputFileDescriptor = recordTarget.fileDescriptor,
@@ -480,6 +484,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 recordingStopRequested = false
                 recordingWatermarkSnapshot = frozenWatermark
                 recordingWatermarkBitmap = frozenWatermarkBitmap
+                recordingWatermarkOverlay = frozenWatermarkOverlay
                 recordingVideoBurnIn = frozenWatermark != null
                 recordingFrameError = false
                 startVideoFrameLoop()
@@ -492,8 +497,10 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 outputTarget?.discard(context)
                 releaseRecorder()
                 recycleBitmap(frozenWatermarkBitmap)
+                recycleWatermarkOverlay(frozenWatermarkOverlay)
                 recordingWatermarkSnapshot = null
                 recordingWatermarkBitmap = null
+                recordingWatermarkOverlay = null
                 recordingVideoBurnIn = false
                 recordingFrameError = false
                 recordingStopRequested = false
@@ -530,6 +537,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             val durationMs = max(1L, System.currentTimeMillis() - recordingStartedAt)
             val frozenWatermark = recordingWatermarkSnapshot
             val frozenWatermarkBitmap = recordingWatermarkBitmap
+            val frozenWatermarkOverlay = recordingWatermarkOverlay
             val requestedVideoBurnIn = recordingVideoBurnIn
             val data = mediaPayload(
                 tempFilePath = outputTarget.resultPath(),
@@ -541,6 +549,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             appendWatermarkResult(data, frozenWatermark, false, requestedVideoBurnIn)
             recordingWatermarkSnapshot = null
             recordingWatermarkBitmap = null
+            recordingWatermarkOverlay = null
             recordingVideoBurnIn = false
             releaseRecorder()
             val pendingData = org.json.JSONObject(data.toString())
@@ -556,6 +565,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                     data = data,
                     frozenWatermark = frozenWatermark,
                     frozenWatermarkBitmap = frozenWatermarkBitmap,
+                    frozenWatermarkOverlay = frozenWatermarkOverlay,
                     requestedVideoBurnIn = requestedVideoBurnIn
                 )
             }
@@ -967,6 +977,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         val frameStartedAt = System.currentTimeMillis()
         val frameWatermark = recordingWatermarkSnapshot
         val frameWatermarkBitmap = recordingWatermarkBitmap
+        val frameWatermarkOverlay = recordingWatermarkOverlay
         val targetBitmap = reusableVideoFrame?.takeIf {
             !it.isRecycled && it.width == recorder.width && it.height == recorder.height
         } ?: Bitmap.createBitmap(recorder.width, recorder.height, Bitmap.Config.ARGB_8888).also {
@@ -991,7 +1002,19 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                     ioHandler.post {
                         try {
                             var watermarkReady = true
-                            if (frameWatermark != null) {
+                            if (frameWatermarkOverlay != null) {
+                                try {
+                                    drawWatermarkOverlay(targetBitmap, frameWatermarkOverlay)
+                                } catch (throwable: Throwable) {
+                                    watermarkReady = false
+                                    markRecordingFrameError(RECORD_STAGE_WATERMARK_DRAW, throwable)
+                                    Log.w(
+                                        LOG_TAG,
+                                        "record frame watermark overlay failed: ${frameErrorDiagnostics()}",
+                                        throwable
+                                    )
+                                }
+                            } else if (frameWatermark != null) {
                                 try {
                                     val burnedIn = drawWatermarkOnPhoto(
                                         Canvas(targetBitmap),
@@ -1067,6 +1090,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         data: org.json.JSONObject,
         frozenWatermark: NativeWatermark?,
         frozenWatermarkBitmap: Bitmap?,
+        frozenWatermarkOverlay: WatermarkOverlay?,
         requestedVideoBurnIn: Boolean,
         frameWaitStartedAt: Long = System.currentTimeMillis()
     ) {
@@ -1081,6 +1105,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                             data = data,
                             frozenWatermark = frozenWatermark,
                             frozenWatermarkBitmap = frozenWatermarkBitmap,
+                            frozenWatermarkOverlay = frozenWatermarkOverlay,
                             requestedVideoBurnIn = requestedVideoBurnIn,
                             frameWaitStartedAt = frameWaitStartedAt
                         )
@@ -1090,7 +1115,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 videoFramePending.set(false)
             }
             if (recorder.videoSampleCount <= 0) {
-                ensureVideoFrameBeforeFinish(recorder, frozenWatermark, frozenWatermarkBitmap)
+                ensureVideoFrameBeforeFinish(recorder, frozenWatermark, frozenWatermarkBitmap, frozenWatermarkOverlay)
             }
 
             val hadFrameError = recordingFrameError
@@ -1122,6 +1147,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 )
                 discardVideoOutput(outputTarget, RECORD_STAGE_RECORD_FINISH)
                 recycleBitmap(frozenWatermarkBitmap)
+                recycleWatermarkOverlay(frozenWatermarkOverlay)
                 runOnMain {
                     resetRecordStopState()
                     failAndEmit("1402", stopErrorMessage, diagnostics)
@@ -1143,6 +1169,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                     Log.e(LOG_TAG, "record stop failed validation: reason=${invalidVideoReason}; ${diagnostics}")
                     discardVideoOutput(outputTarget, validationStage)
                     recycleBitmap(frozenWatermarkBitmap)
+                    recycleWatermarkOverlay(frozenWatermarkOverlay)
                     runOnMain {
                         resetRecordStopState()
                         failAndEmit("1402", invalidVideoReason, diagnostics)
@@ -1184,6 +1211,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                         emit("recorddone", data)
                     }
                     recycleBitmap(frozenWatermarkBitmap)
+                    recycleWatermarkOverlay(frozenWatermarkOverlay)
                 }
             }
         } catch (throwable: Throwable) {
@@ -1197,6 +1225,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             Log.e(LOG_TAG, "record stop failed unexpectedly: ${diagnostics}", throwable)
             discardVideoOutput(outputTarget, RECORD_STAGE_RECORD_FINISH_UNHANDLED)
             recycleBitmap(frozenWatermarkBitmap)
+            recycleWatermarkOverlay(frozenWatermarkOverlay)
             runOnMain {
                 resetRecordStopState()
                 failAndEmit("1402", "录像停止失败", diagnostics)
@@ -1207,7 +1236,8 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private fun ensureVideoFrameBeforeFinish(
         recorder: CameraMp4Recorder,
         frozenWatermark: NativeWatermark?,
-        frozenWatermarkBitmap: Bitmap?
+        frozenWatermarkBitmap: Bitmap?,
+        frozenWatermarkOverlay: WatermarkOverlay?
     ): Boolean {
         if (recorder.videoSampleCount > 0) {
             return true
@@ -1244,7 +1274,15 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             return false
         }
         var watermarkReady = true
-        if (frozenWatermark != null) {
+        if (frozenWatermarkOverlay != null) {
+            try {
+                drawWatermarkOverlay(targetBitmap, frozenWatermarkOverlay)
+            } catch (throwable: Throwable) {
+                watermarkReady = false
+                markRecordingFrameError(RECORD_STAGE_FINAL_WATERMARK_DRAW, throwable)
+                Log.w(LOG_TAG, "record final frame watermark overlay failed: ${frameErrorDiagnostics()}", throwable)
+            }
+        } else if (frozenWatermark != null) {
             try {
                 val burnedIn = drawWatermarkOnPhoto(
                     Canvas(targetBitmap),
@@ -1302,6 +1340,8 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         recordingWatermarkSnapshot = null
         recycleBitmap(recordingWatermarkBitmap)
         recordingWatermarkBitmap = null
+        recycleWatermarkOverlay(recordingWatermarkOverlay)
+        recordingWatermarkOverlay = null
         recordingVideoBurnIn = false
         if (recordingStopRequested) {
             releaseReusableFrameAfterRecordStop = true
@@ -1650,6 +1690,55 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         }
     }
 
+    private fun recycleWatermarkOverlay(overlay: WatermarkOverlay?) {
+        recycleBitmap(overlay?.bitmap)
+    }
+
+    private fun createVideoWatermarkOverlay(
+        size: XycSize,
+        watermark: NativeWatermark?,
+        watermarkBitmap: Bitmap?
+    ): WatermarkOverlay? {
+        if (watermark == null) {
+            return null
+        }
+        val dirtyRect = watermarkDirtyRect(size.width, size.height, watermark)
+        if (dirtyRect.isEmpty()) {
+            return null
+        }
+        val overlayBitmap = Bitmap.createBitmap(dirtyRect.width(), dirtyRect.height(), Bitmap.Config.ARGB_8888)
+        overlayBitmap.eraseColor(Color.TRANSPARENT)
+        val burnedIn = try {
+            val overlayCanvas = Canvas(overlayBitmap)
+            overlayCanvas.translate(-dirtyRect.left.toFloat(), -dirtyRect.top.toFloat())
+            drawWatermarkOnPhoto(
+                overlayCanvas,
+                size.width,
+                size.height,
+                watermark,
+                watermarkBitmap
+            )
+        } catch (throwable: Throwable) {
+            overlayBitmap.recycle()
+            throw throwable
+        }
+        if (!burnedIn) {
+            overlayBitmap.recycle()
+            throw IllegalStateException("水印内容不可绘制")
+        }
+        return WatermarkOverlay(
+            bitmap = overlayBitmap,
+            dirtyRect = dirtyRect
+        )
+    }
+
+    private fun drawWatermarkOverlay(targetBitmap: Bitmap, overlay: WatermarkOverlay) {
+        if (overlay.bitmap.isRecycled || overlay.dirtyRect.isEmpty()) {
+            return
+        }
+        Canvas(targetBitmap).drawBitmap(overlay.bitmap, overlay.dirtyRect.left.toFloat(), overlay.dirtyRect.top.toFloat(), null)
+    }
+
     private fun writePhotoWithWatermark(
         file: File,
         data: ByteArray,
@@ -1706,13 +1795,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         cachedImageBitmap: Bitmap?
     ): Boolean {
         val transform = watermarkOutputTransform(outputWidth, outputHeight, watermark)
-        val boxWidth = transform.previewWidth * watermark.boxWidth * watermark.scale * transform.previewToOutputScale
-        val boxHeight = transform.previewHeight * watermark.boxHeight * watermark.scale * transform.previewToOutputScale
-        val left = ((transform.previewWidth * watermark.positionX + transform.previewOffsetX) * transform.previewToOutputScale)
-            .coerceIn(0f, max(0f, outputWidth - boxWidth))
-        val top = ((transform.previewHeight * watermark.positionY + transform.previewOffsetY) * transform.previewToOutputScale)
-            .coerceIn(0f, max(0f, outputHeight - boxHeight))
-        val rect = RectF(left, top, left + boxWidth, top + boxHeight)
+        val rect = watermarkOutputRect(outputWidth, outputHeight, watermark, transform)
         val centerX = rect.centerX()
         val centerY = rect.centerY()
 
@@ -1794,6 +1877,51 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         }
         canvas.restore()
         return drewContent
+    }
+
+    private fun watermarkOutputRect(
+        outputWidth: Int,
+        outputHeight: Int,
+        watermark: NativeWatermark,
+        transform: WatermarkOutputTransform
+    ): RectF {
+        val boxWidth = transform.previewWidth * watermark.boxWidth * watermark.scale * transform.previewToOutputScale
+        val boxHeight = transform.previewHeight * watermark.boxHeight * watermark.scale * transform.previewToOutputScale
+        val left = ((transform.previewWidth * watermark.positionX + transform.previewOffsetX) * transform.previewToOutputScale)
+            .coerceIn(0f, max(0f, outputWidth - boxWidth))
+        val top = ((transform.previewHeight * watermark.positionY + transform.previewOffsetY) * transform.previewToOutputScale)
+            .coerceIn(0f, max(0f, outputHeight - boxHeight))
+        return RectF(left, top, left + boxWidth, top + boxHeight)
+    }
+
+    private fun watermarkDirtyRect(outputWidth: Int, outputHeight: Int, watermark: NativeWatermark): Rect {
+        val transform = watermarkOutputTransform(outputWidth, outputHeight, watermark)
+        val rect = watermarkOutputRect(outputWidth, outputHeight, watermark, transform)
+        val rotation = watermark.rotation % 360f
+        val bounds = if (abs(rotation) < 0.01f) {
+            rect
+        } else {
+            val radians = Math.toRadians(rotation.toDouble())
+            val cosValue = abs(kotlin.math.cos(radians)).toFloat()
+            val sinValue = abs(kotlin.math.sin(radians)).toFloat()
+            val halfWidth = rect.width() / 2f
+            val halfHeight = rect.height() / 2f
+            val rotatedHalfWidth = halfWidth * cosValue + halfHeight * sinValue
+            val rotatedHalfHeight = halfWidth * sinValue + halfHeight * cosValue
+            RectF(
+                rect.centerX() - rotatedHalfWidth,
+                rect.centerY() - rotatedHalfHeight,
+                rect.centerX() + rotatedHalfWidth,
+                rect.centerY() + rotatedHalfHeight
+            )
+        }
+        val padding = WATERMARK_OVERLAY_DIRTY_PADDING_PX
+        return Rect(
+            max(0, Math.floor((bounds.left - padding).toDouble()).toInt()),
+            max(0, Math.floor((bounds.top - padding).toDouble()).toInt()),
+            min(outputWidth, Math.ceil((bounds.right + padding).toDouble()).toInt()),
+            min(outputHeight, Math.ceil((bounds.bottom + padding).toDouble()).toInt())
+        )
     }
 
     private fun readExifRotationDegrees(file: File): Int {
@@ -2955,6 +3083,8 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     private data class PhotoWriteResult(val size: XycSize, val watermarkBurnedIn: Boolean)
 
+    private data class WatermarkOverlay(val bitmap: Bitmap, val dirtyRect: Rect)
+
     private data class WatermarkOutputTransform(
         val previewWidth: Float,
         val previewHeight: Float,
@@ -3040,11 +3170,12 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         const val MAX_PHOTO_SIZE_LONG_EDGE = 3000
         const val MAX_PHOTO_SIZE_PIXELS = 6_000_000
         const val PHOTO_JPEG_QUALITY = 90
-        const val MAX_RECORDING_LONG_EDGE = 1280
-        const val MAX_RECORDING_PIXELS = 921_600
+        const val MAX_RECORDING_LONG_EDGE = 1440
+        const val MAX_RECORDING_PIXELS = 1_166_400
         const val MIN_VIDEO_BITRATE = 4_000_000
         const val MAX_VIDEO_BITRATE = 10_000_000
         const val VIDEO_BITRATE_PIXEL_DIVISOR = 4
+        const val WATERMARK_OVERLAY_DIRTY_PADDING_PX = 4
         const val RECORD_AUDIO_ENABLED = false
         const val MIME_TYPE = "video/avc"
         const val AUDIO_SAMPLE_RATE = 44_100
