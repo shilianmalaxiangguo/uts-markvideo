@@ -552,7 +552,6 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 } else {
                     val invalidVideoReason = when {
                         recorder.frameCount <= 0 -> "录像没有写入有效视频帧"
-                        hadFrameError -> "录像帧编码失败"
                         else -> null
                     }
                     if (invalidVideoReason != null) {
@@ -1038,13 +1037,11 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                                 }
                             }
                             if (!recorder.encodeFrame(targetBitmap)) {
-                                throw IllegalStateException("视频帧编码未写入")
+                                Log.d(LOG_TAG, "record frame skipped because encoder input buffer was not ready.")
                             }
                         } catch (throwable: Throwable) {
                             recordingFrameError = true
-                            runOnMain {
-                                emitError("1402", "录像帧编码失败", throwable.message ?: throwable.javaClass.simpleName)
-                            }
+                            Log.w(LOG_TAG, "record frame encode failed.", throwable)
                         } finally {
                             videoFramePending.set(false)
                             scheduleNextVideoFrame(frameStartedAt)

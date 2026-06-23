@@ -965,9 +965,14 @@ test('xyc-markvideo Android native view uses camera preview, photo, and 30fps re
   assert.match(nativeView, /AudioRecord/);
   assert.match(nativeView, /recordingVideoBurnIn = frozenWatermark != null/);
   assert.match(nativeView, /recordingFrameError = false/);
-  assert.match(nativeView, /val invalidVideoReason = when \{[\s\S]*recorder\.frameCount <= 0 -> "录像没有写入有效视频帧"[\s\S]*hadFrameError -> "录像帧编码失败"/);
+  assert.match(nativeView, /val invalidVideoReason = when \{[\s\S]*recorder\.frameCount <= 0 -> "录像没有写入有效视频帧"[\s\S]*else -> null/);
+  assert.doesNotMatch(nativeView, /hadFrameError -> "录像帧编码失败"/);
   assert.match(nativeView, /if \(invalidVideoReason != null\) \{[\s\S]*outputTarget\.discard\(context\)[\s\S]*failAndEmit\("1402", "录像停止失败", invalidVideoReason\)/);
   assert.match(nativeView, /val finalVideoBurnIn = requestedVideoBurnIn && !hadFrameError && recorder\.frameCount > 0/);
+  assert.match(nativeView, /if \(!recorder\.encodeFrame\(targetBitmap\)\) \{[\s\S]*Log\.d\(LOG_TAG, "record frame skipped because encoder input buffer was not ready\."\)/);
+  assert.doesNotMatch(nativeView, /throw IllegalStateException\("视频帧编码未写入"\)/);
+  assert.match(nativeView, /catch \(throwable: Throwable\) \{[\s\S]*recordingFrameError = true[\s\S]*Log\.w\(LOG_TAG, "record frame encode failed\.", throwable\)/);
+  assert.doesNotMatch(nativeView, /emitError\("1402", "录像帧编码失败"/);
   assert.match(nativeView, /appendWatermarkResult\(startPayload, frozenWatermark, false, recordingVideoBurnIn\)/);
   assert.match(nativeView, /recordingWatermarkBitmap = frozenWatermarkBitmap/);
   assert.match(nativeView, /recycleBitmap\(frozenWatermarkBitmap\)/);
