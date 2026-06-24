@@ -4,6 +4,69 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260623-008] codegraph_files_cli_panic
+
+**Logged**: 2026-06-23T22:42:40+08:00
+**Priority**: medium
+**Status**: pending
+**Area**: infra
+
+### Summary
+`codegraph files` panicked when used from this workspace, so structural lookup had to fall back to direct file reads and `rg`.
+
+### Error
+```text
+Mismatch between definition and access of `path`.
+Could not downcast to TypeId(...), need to downcast to TypeId(...)
+```
+
+### Context
+- Command: `codegraph files pages/cameraX`
+- Environment: `/Users/chaixixi/od/uts-markvideo`, CodeGraph CLI available at `/Users/chaixixi/.local/bin/codegraph`.
+- `codegraph status` succeeded, but the files subcommand panicked before returning indexed paths.
+
+### Suggested Fix
+Use `codegraph query` / `codegraph context` or direct `rg` reads until the `files` subcommand is fixed; rerun with `RUST_BACKTRACE=1` if deeper CodeGraph CLI debugging is needed.
+
+### Metadata
+- Reproducible: unknown
+- Related Files: .codegraph/, skills/codegraph/SKILL.md
+
+---
+
+## [ERR-20260623-009] hbuilderx_cli_android_compile_hung_after_uts_audio_patch
+
+**Logged**: 2026-06-23T21:50:00+08:00
+**Priority**: medium
+**Status**: pending
+**Area**: infra
+
+### Summary
+HBuilderX Android compile hung after printing only the version line while rebuilding the UTS Android plugin.
+
+### Error
+```text
+HBuilderX Version: 5.07
+```
+
+### Context
+- Command: `/Applications/HBuilderX.app/Contents/MacOS/cli launch app-android --project /Users/chaixixi/od/uts-markvideo --compile true --continue-on-error false`
+- Repeated once after stopping stale build processes; the second run also printed only the version line for 60 seconds.
+- After interrupting the CLI, a child Kotlin compile Java process remained alive for more than 7 minutes with little CPU activity.
+- Stale build child processes were stopped manually.
+- Recurrence 2026-06-23T23:09:00+08:00: `/Applications/HBuilderX.app/Contents/MacOS/cli launch app-android --project /Users/chaixixi/od/uts-markvideo --compile true --continue-on-error false --native-log false` again printed only `HBuilderX Version: 5.07` and no compile log for 90 seconds, then was interrupted.
+- Recurrence 2026-06-23T23:13:00+08:00: after killing stale `uniapp-cli-vite` / Kotlin compiler child processes, the same CLI command still printed only `HBuilderX Version: 5.07` and no compile log for 90 seconds, then was interrupted.
+- Recurrence 2026-06-23T23:50:00+08:00: a macOS-compatible 180s wrapper around the same CLI command again produced only `HBuilderX Version: 5.07`; log path was `/tmp/uts-markvideo-hbuilderx-compile-20260623234705.log`.
+
+### Suggested Fix
+If this recurs, clean the HBuilderX compile/plugin cache or restart HBuilderX before re-running the Android compile. Do not treat this command as passed unless it prints `项目 uts-markvideo 编译成功`.
+
+### Metadata
+- Reproducible: yes
+- Related Files: uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt
+
+---
+
 ## [ERR-20260623-002] python_default_missing_pillow
 
 **Logged**: 2026-06-22T17:53:51Z
@@ -360,5 +423,106 @@ Keep the front-camera output transform before watermark drawing for both photo a
 - **Resolved**: pending true-device verification
 - **Commit/PR**: pending
 - **Notes**: Added `applyFrontCameraOutputMirror()` for photos, `applyFrontCameraFrameMirrorIfNeeded()` for recording frames, switched the capture-time facing snapshot to `activeCameraFacing()`, and kept regression guards in `test/structure.test.mjs`. True-device confirmation is still required.
+
+---
+
+## [ERR-20260623-006] android_record_stop_audio_thread_join_race
+
+**Logged**: 2026-06-23T22:17:52+08:00
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+启用录像音频后，停止录像可能失败，因为 `finish()` 只等待音频编码线程 1.5 秒，但音频线程自身最多会用 5 秒完成 EOS 和 drain。
+
+### Error
+```text
+用户反馈：现在录像有bug了，录像停止失败
+```
+
+### Context
+- Surface: `uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt`
+- Root cause: `audioThread?.join(max(1L, min(1500L, deadlineMs - System.currentTimeMillis())))` 可能提前返回，随后 `muxer.stop()` / `muxer.release()` 与音频线程继续写轨形成竞态。
+- Fix: wait for the audio thread for the remaining `FINISH_TIMEOUT_MS` window before stopping/releasing the muxer.
+
+### Suggested Fix
+Keep audio encoder shutdown and muxer shutdown serialized. Do not reintroduce a shorter audio join cap unless a device log proves the audio thread cannot finish within the recorder deadline.
+
+### Metadata
+- Reproducible: yes
+- Related Files: uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt, test/structure.test.mjs
+
+### Resolution
+- **Resolved**: 2026-06-23T22:17:52+08:00
+- **Commit/PR**: pending
+- **Notes**: Kept video start/stop feedback sounds but moved them outside the microphone capture window, serialized audio thread shutdown before muxer release, and kept regression guards in `test/structure.test.mjs`.
+
+---
+
+## [ERR-20260623-010] adb_path_not_in_shell_path
+
+**Logged**: 2026-06-23T22:17:21+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: config
+
+### Summary
+`adb` was not available on the shell `PATH`, so device screenshots and device queries needed the explicit Android SDK path.
+
+### Error
+```text
+zsh:1: command not found: adb
+```
+
+### Context
+- Operation: ran `adb devices` from the project workspace shell.
+- Environment: macOS workspace with Android SDK installed at `$HOME/Library/Android/sdk/platform-tools/adb`.
+
+### Suggested Fix
+Use the explicit SDK path for adb in this workspace, or add `platform-tools` to PATH before trying device capture commands.
+
+### Metadata
+- Reproducible: yes
+- Related Files: N/A
+
+### Resolution
+- **Resolved**: 2026-06-23T22:17:21+08:00
+- **Notes**: Continued with `/Users/chaixixi/Library/Android/sdk/platform-tools/adb` for all device work.
+
+---
+
+## [ERR-20260623-011] android_record_start_first_packet_stall_low_bitrate
+
+**Logged**: 2026-06-23T23:05:00+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: backend
+
+### Summary
+Android 真机录像开头第一帧被拉长约 1.4 秒，输出仍落在 `480x640` 和约 `2.7-3.1 Mbps`。
+
+### Error
+```text
+用户反馈：视频现在的码率有点低，另外还是会卡开头一秒，还会听到录像开始的提示音。
+```
+
+### Context
+- Surface: `uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt`
+- Evidence: 从设备 `/sdcard/Movies/xyc-markvideo/` 拉取最近两个 mp4 后，`ffprobe` 显示视频流为 `480x640`，整体码率约 `2701836` / `3100061` bps；视频 packet 开头为 `0.000000 ... duration=1.449944` 和 `duration=1.401467`。
+- Root cause: 输出尺寸仍跟随 Camera1 `supportedVideoSizes`，没有按实际预览框尺寸编码；录像启动窗口内的早期帧和早期麦克风采样也会把不稳定首帧/开始反馈写入成片。
+
+### Suggested Fix
+录像输出尺寸应优先取 `previewView.width/height` 再做上限约束；视频 PTS 以第一帧为 0、后续按真实帧间隔递增；启动阶段丢弃短预热窗口内的视频帧和音频采样，避免开始反馈和不稳定首帧进入 muxer。
+
+### Metadata
+- Reproducible: yes
+- Related Files: uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt, test/structure.test.mjs
+- See Also: LRN-20260623-C25, LRN-20260623-C24
+
+### Resolution
+- **Resolved**: 2026-06-23T23:05:00+08:00
+- **Commit/PR**: pending
+- **Notes**: Recording now uses preview view dimensions with a 960-long-edge/691,200px cap, targets 12-30 Mbps with CBR when supported, skips a 700ms startup warmup window, discards warmup audio reads, and timestamps video from the first encoded frame using real elapsed time.
 
 ---

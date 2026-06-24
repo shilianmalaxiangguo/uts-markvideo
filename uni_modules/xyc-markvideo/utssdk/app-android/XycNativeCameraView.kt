@@ -24,6 +24,7 @@ import android.hardware.Camera
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.ExifInterface
+import android.media.MediaActionSound
 import android.media.MediaMetadataRetriever
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -66,6 +67,11 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private val ioHandler = Handler(ioThread.looper)
     private val previewView = SurfaceView(context)
     private val statusView = TextView(context)
+    private val mediaActionSound = MediaActionSound().apply {
+        load(MediaActionSound.SHUTTER_CLICK)
+        load(MediaActionSound.START_VIDEO_RECORDING)
+        load(MediaActionSound.STOP_VIDEO_RECORDING)
+    }
     private var deviceOrientationDegrees = 0
     private val captureOrientationListener = object : OrientationEventListener(context.applicationContext) {
         override fun onOrientationChanged(orientation: Int) {
@@ -86,11 +92,13 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private var requestedZoomMode = UI_ZOOM_1X
     private var requestedCameraFacing = UI_CAMERA_BACK
     private var targetFps = DEFAULT_TARGET_FPS
+    @Volatile private var cameraSoundEnabled = true
     private var previewSize = XycSize(1280, 720)
     private var pictureSize = XycSize(1920, 1080)
     private var videoSize = XycSize(1280, 720)
     private var recordingOutputSize = XycSize(1280, 720)
     private var recording = false
+    @Volatile private var recordingStartPending = false
     @Volatile private var recordingStopRequested = false
     private var photoBusy = false
     private var recordingStartedAt = 0L
@@ -109,6 +117,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private var recordingWatermarkOverlay: WatermarkOverlay? = null
     private var recordingVideoBurnIn = false
     private var recordingCameraFacing = UI_CAMERA_BACK
+    private var recordingFramesCanWriteAt = 0L
     @Volatile private var recordingFrameError = false
     @Volatile private var recordingFrameErrorStage = ""
     @Volatile private var recordingFrameErrorDetail = ""
@@ -157,6 +166,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     override fun onDetachedFromWindow() {
         captureOrientationListener.disable()
         closeCamera(true)
+        releaseCameraActionSound()
         if (recordingStopRequested) {
             quitIoThreadAfterRecordStop = true
         } else {
@@ -174,6 +184,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     fun setMode(mode: String) {
         val nextMode = if (mode == "video") "video" else "photo"
+        if (recording || recordingStartPending || recordingStopRequested) {
+            return
+        }
         if (nextMode == currentMode) {
             return
         }
@@ -190,6 +203,13 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     fun switchMode(mode: String): String {
         setMode(mode)
         return ok(payload().put("mode", currentMode))
+    }
+
+    fun setCameraSoundEnabled(enabled: Boolean): String {
+        cameraSoundEnabled = enabled
+        return ok(payload()
+            .put("cameraSoundEnabled", cameraSoundEnabled)
+            .put("message", if (cameraSoundEnabled) "提示音已开启" else "提示音已关闭"))
     }
 
     fun setFlashMode(mode: String): String {
@@ -239,7 +259,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     fun switchCamera(): String {
         return runOnMainSync {
-            if (recording || recordingStopRequested || photoBusy) {
+            if (recording || recordingStartPending || recordingStopRequested || photoBusy) {
                 return@runOnMainSync failAndEmit("1105", "拍摄或保存中不能切换摄像头", "switchCamera while busy")
             }
             if (!holderReady) {
@@ -294,8 +314,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     fun setWatermark(optionsJson: String): String {
         return runOnMainSync {
-            if (recording) {
-                return@runOnMainSync failAndEmit("1403", "录像中不能编辑水印", "setWatermark while recording")
+            if (recording || recordingStartPending) {
+                val message = if (recordingStartPending) "录像启动中不能编辑水印" else "录像中不能编辑水印"
+                return@runOnMainSync failAndEmit("1403", message, "setWatermark while recording busy")
             }
             val nextWatermark = try {
                 parseWatermark(optionsJson)
@@ -320,8 +341,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     fun clearWatermark(): String {
         return runOnMainSync {
-            if (recording) {
-                return@runOnMainSync failAndEmit("1403", "录像中不能编辑水印", "clearWatermark while recording")
+            if (recording || recordingStartPending) {
+                val message = if (recordingStartPending) "录像启动中不能编辑水印" else "录像中不能编辑水印"
+                return@runOnMainSync failAndEmit("1403", message, "clearWatermark while recording busy")
             }
             recycleBitmap(activeWatermarkBitmap)
             activeWatermarkBitmap = null
@@ -395,8 +417,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 "相机未就绪",
                 "Camera is not open."
             )
-            if (recording) {
-                return@runOnMainSync failAndEmit("1403", "录像中不能拍照", "takePhoto while recording")
+            if (recording || recordingStartPending) {
+                val message = if (recordingStartPending) "录像启动中不能拍照" else "录像中不能拍照"
+                return@runOnMainSync failAndEmit("1403", message, "takePhoto while recording busy")
             }
             if (photoBusy) {
                 return@runOnMainSync failAndEmit("1302", "拍照处理中", "takePhoto while photoBusy")
@@ -425,7 +448,14 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                     throwable.message ?: throwable.javaClass.simpleName
                 )
             }
-            activeCamera.takePicture(null, null) { data, callbackCamera ->
+            val defaultShutterSoundDisabled = disableDefaultShutterSound(activeCamera)
+            activeCamera.takePicture(Camera.ShutterCallback {
+                if (defaultShutterSoundDisabled) {
+                    playCameraActionSound(MediaActionSound.SHUTTER_CLICK)
+                } else if (!cameraSoundEnabled) {
+                    Log.w(LOG_TAG, "default shutter sound could not be disabled; device may still play system shutter sound.")
+                }
+            }, null) { data, callbackCamera ->
                 val captureCallbackMs = System.currentTimeMillis() - photoRequestedAt
                 val file = File(context.cacheDir, "xyc-markvideo-photo-${System.currentTimeMillis()}.jpg")
                 val frozenWatermark = activeWatermark
@@ -497,9 +527,17 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     fun startRecord(optionsJson: String): String {
         return runOnMainSync {
-            if (recording || recordingStopRequested) {
-                val message = if (recordingStopRequested) "请等待视频保存完成" else "当前状态不允许执行该操作"
-                val nativeMessage = if (recordingStopRequested) "startRecord while stop pending" else "duplicate startRecord"
+            if (recording || recordingStartPending || recordingStopRequested) {
+                val message = when {
+                    recordingStopRequested -> "请等待视频保存完成"
+                    recordingStartPending -> "录像启动中"
+                    else -> "当前状态不允许执行该操作"
+                }
+                val nativeMessage = when {
+                    recordingStopRequested -> "startRecord while stop pending"
+                    recordingStartPending -> "startRecord while start pending"
+                    else -> "duplicate startRecord"
+                }
                 return@runOnMainSync failAndEmit("1403", message, nativeMessage)
             }
             val missingPermissions = recordMissingPermissions()
@@ -535,63 +573,149 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             val fps = parseFps(optionsJson)
             targetFps = fps
             val frozenWatermark = activeWatermark
-            var frozenWatermarkBitmap: Bitmap? = null
-            var frozenWatermarkOverlay: WatermarkOverlay? = null
-            var outputTarget: VideoOutputTarget? = null
+            val frozenWatermarkBitmapSource = activeWatermarkBitmap
+            val recordingSize = chooseRecordingOutputSize()
+            val frozenCameraFacing = activeCameraFacing()
 
-            try {
-                val recordTarget = createVideoOutputTarget()
-                outputTarget = recordTarget
-                frozenWatermarkBitmap = copyOrDecodeWatermarkBitmap(frozenWatermark, activeWatermarkBitmap)
-                val recordingSize = chooseRecordingOutputSize()
-                frozenWatermarkOverlay = createVideoWatermarkOverlay(recordingSize, frozenWatermark, frozenWatermarkBitmap)
-                val recorder = CameraMp4Recorder(
-                    outputFile = recordTarget.file,
-                    outputFileDescriptor = recordTarget.fileDescriptor,
-                    width = recordingSize.width,
-                    height = recordingSize.height,
-                    fps = targetFps,
-                    bitrate = chooseVideoBitrate(recordingSize, targetFps),
-                    includeAudio = RECORD_AUDIO_ENABLED
+            recordingStartPending = true
+            recordingStopRequested = false
+            recordingFrameError = false
+            recordingFrameErrorStage = ""
+            recordingFrameErrorDetail = ""
+            recordingFrameSkipStage = ""
+            recordingFrameSkipDetail = ""
+            setStatus("录像启动中")
+            playCameraActionSound(MediaActionSound.START_VIDEO_RECORDING)
+            ioHandler.postDelayed({
+                startRecordOnIo(
+                    recordingSize = recordingSize,
+                    fps = fps,
+                    frozenWatermark = frozenWatermark,
+                    frozenWatermarkBitmapSource = frozenWatermarkBitmapSource,
+                    frozenCameraFacing = frozenCameraFacing
                 )
-                recorder.start()
-                videoRecorder = recorder
-                recordingOutputSize = recordingSize
+            }, RECORD_START_SOUND_GUARD_MS)
+            ""
+        }
+    }
 
+    private fun startRecordOnIo(
+        recordingSize: XycSize,
+        fps: Int,
+        frozenWatermark: NativeWatermark?,
+        frozenWatermarkBitmapSource: Bitmap?,
+        frozenCameraFacing: String
+    ) {
+        var frozenWatermarkBitmap: Bitmap? = null
+        var frozenWatermarkOverlay: WatermarkOverlay? = null
+        var outputTarget: VideoOutputTarget? = null
+        var recorder: CameraMp4Recorder? = null
+        var transferredToRecording = false
+
+        try {
+            if (!recordingStartPending) {
+                return
+            }
+
+            val recordTarget = createVideoOutputTarget()
+            outputTarget = recordTarget
+            frozenWatermarkBitmap = copyOrDecodeWatermarkBitmap(frozenWatermark, frozenWatermarkBitmapSource)
+            frozenWatermarkOverlay = createVideoWatermarkOverlay(recordingSize, frozenWatermark, frozenWatermarkBitmap)
+            val nextRecorder = CameraMp4Recorder(
+                outputFile = recordTarget.file,
+                outputFileDescriptor = recordTarget.fileDescriptor,
+                width = recordingSize.width,
+                height = recordingSize.height,
+                fps = fps,
+                bitrate = chooseVideoBitrate(recordingSize, fps),
+                includeAudio = RECORD_AUDIO_ENABLED
+            )
+            recorder = nextRecorder
+            nextRecorder.start()
+
+            transferredToRecording = runOnMainSync {
+                if (!recordingStartPending || recordingStopRequested || recording || camera == null || !holderReady) {
+                    return@runOnMainSync false
+                }
+
+                videoRecorder = nextRecorder
+                recordingOutputSize = recordingSize
                 videoOutputTarget = recordTarget
                 recordingStartedAt = System.currentTimeMillis()
+                recordingFramesCanWriteAt = recordingStartedAt + RECORD_START_WARMUP_MS
                 recording = true
+                recordingStartPending = false
                 recordingStopRequested = false
                 recordingWatermarkSnapshot = frozenWatermark
                 recordingWatermarkBitmap = frozenWatermarkBitmap
                 recordingWatermarkOverlay = frozenWatermarkOverlay
                 recordingVideoBurnIn = frozenWatermark != null
-                recordingCameraFacing = activeCameraFacing()
+                recordingCameraFacing = frozenCameraFacing
                 recordingFrameError = false
+                recordingFrameErrorStage = ""
+                recordingFrameErrorDetail = ""
+                recordingFrameSkipStage = ""
+                recordingFrameSkipDetail = ""
                 startVideoFrameLoop()
                 setStatus("录像中")
-                val startPayload = payload().put("message", "录像中").put("fps", targetFps)
+                val startPayload = payload().put("message", "录像中").put("fps", fps)
                 appendWatermarkResult(startPayload, frozenWatermark, false, recordingVideoBurnIn)
                 emit("recordstart", startPayload)
-                ok(startPayload)
-            } catch (throwable: Throwable) {
+                true
+            }
+
+            if (transferredToRecording) {
+                recorder = null
+                outputTarget = null
+                frozenWatermarkBitmap = null
+                frozenWatermarkOverlay = null
+            } else {
+                runOnMain {
+                    if (recordingStartPending) {
+                        recordingStartPending = false
+                        recordingFramesCanWriteAt = 0L
+                        failAndEmit("1401", "录像开始失败", "record start state changed before activation.")
+                    }
+                }
+            }
+        } catch (throwable: Throwable) {
+            val detail = throwable.message ?: throwable.javaClass.simpleName
+            runOnMain {
+                if (recordingStartPending) {
+                    recordingStartPending = false
+                    recording = false
+                    recordingStopRequested = false
+                    recordingFramesCanWriteAt = 0L
+                    recordingWatermarkSnapshot = null
+                    recordingWatermarkBitmap = null
+                    recordingWatermarkOverlay = null
+                    recordingVideoBurnIn = false
+                    recordingFrameError = false
+                    recordingFrameErrorStage = ""
+                    recordingFrameErrorDetail = ""
+                    recordingFrameSkipStage = ""
+                    recordingFrameSkipDetail = ""
+                    failAndEmit("1401", "录像开始失败", detail)
+                }
+            }
+        } finally {
+            if (!transferredToRecording) {
+                try {
+                    recorder?.finish()
+                } catch (_: Throwable) {
+                }
                 outputTarget?.discard(context)
-                releaseRecorder()
                 recycleBitmap(frozenWatermarkBitmap)
                 recycleWatermarkOverlay(frozenWatermarkOverlay)
-                recordingWatermarkSnapshot = null
-                recordingWatermarkBitmap = null
-                recordingWatermarkOverlay = null
-                recordingVideoBurnIn = false
-                recordingFrameError = false
-                recordingStopRequested = false
-                failAndEmit("1401", "录像开始失败", throwable.message ?: throwable.javaClass.simpleName)
             }
         }
     }
 
     fun stopRecord(): String {
         return runOnMainSync {
+            if (recordingStartPending) {
+                return@runOnMainSync ok(payload().put("message", "录像启动中"))
+            }
             if (!recording && recordingStopRequested) {
                 return@runOnMainSync ok(payload().put("message", "视频保存中"))
             }
@@ -791,7 +915,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 return false
             }
             if (targetCameraId != activeCameraId) {
-                if (recording || photoBusy) {
+                if (recording || recordingStartPending || photoBusy) {
                     if (failIfUnsupported) {
                         throw IllegalStateException("Cannot switch physical camera while busy.")
                     }
@@ -1128,6 +1252,11 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         }
 
         val frameStartedAt = System.currentTimeMillis()
+        if (frameStartedAt < recordingFramesCanWriteAt) {
+            videoFramePending.set(false)
+            scheduleNextVideoFrame(frameStartedAt)
+            return
+        }
         val frameWatermark = recordingWatermarkSnapshot
         val frameWatermarkBitmap = recordingWatermarkBitmap
         val frameWatermarkOverlay = recordingWatermarkOverlay
@@ -1283,6 +1412,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             try {
                 val finishStartedAt = System.currentTimeMillis()
                 recorder.finish()
+                playCameraActionSound(MediaActionSound.STOP_VIDEO_RECORDING)
                 finishMs = System.currentTimeMillis() - finishStartedAt
             } catch (throwable: Throwable) {
                 finishMs = System.currentTimeMillis() - stopRequestedAt
@@ -1310,8 +1440,10 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                     failAndEmit("1402", stopErrorMessage, diagnostics)
                 }
             } else {
+                val recordedDurationMs = data.optLong("durationMs", 0L)
                 val invalidVideoReason = when {
                     recorder.videoSampleCount <= 0 -> "录像没有写入有效视频帧"
+                    recorder.includeAudio && recorder.audioSampleCount <= 0 && recordedDurationMs >= RECORD_AUDIO_REQUIRED_AFTER_MS -> "录像没有写入有效音频"
                     else -> null
                 }
                 if (invalidVideoReason != null) {
@@ -1489,6 +1621,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     }
 
     private fun closeCamera(releaseWatermark: Boolean) {
+        recordingStartPending = false
         if (recording) {
             stopVideoFrameLoop()
             try {
@@ -1500,6 +1633,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         releaseVideoOutputTarget(true)
         recording = false
         photoBusy = false
+        recordingFramesCanWriteAt = 0L
         recordingWatermarkSnapshot = null
         recycleBitmap(recordingWatermarkBitmap)
         recordingWatermarkBitmap = null
@@ -1562,6 +1696,33 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         reusableVideoFrame = null
         recycleBitmap(reusableMirroredVideoFrame)
         reusableMirroredVideoFrame = null
+    }
+
+    private fun playCameraActionSound(soundName: Int) {
+        if (!cameraSoundEnabled) {
+            return
+        }
+        try {
+            mediaActionSound.play(soundName)
+        } catch (throwable: Throwable) {
+            Log.w(LOG_TAG, "camera action sound failed: ${throwable.message}")
+        }
+    }
+
+    private fun disableDefaultShutterSound(activeCamera: Camera): Boolean {
+        return try {
+            activeCamera.enableShutterSound(false)
+        } catch (throwable: Throwable) {
+            Log.w(LOG_TAG, "disable default shutter sound failed: ${throwable.message}")
+            false
+        }
+    }
+
+    private fun releaseCameraActionSound() {
+        try {
+            mediaActionSound.release()
+        } catch (_: Throwable) {
+        }
     }
 
     private fun markRecordingFrameError(stage: String, throwable: Throwable) {
@@ -1723,8 +1884,10 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     }
 
     private fun chooseRecordingOutputSize(): XycSize {
-        val sourceWidth = if (shouldRotateRecordingOutput()) videoSize.height else videoSize.width
-        val sourceHeight = if (shouldRotateRecordingOutput()) videoSize.width else videoSize.height
+        val fallbackWidth = if (shouldRotateRecordingOutput()) videoSize.height else videoSize.width
+        val fallbackHeight = if (shouldRotateRecordingOutput()) videoSize.width else videoSize.height
+        val sourceWidth = previewView.width.takeIf { it > 0 } ?: fallbackWidth
+        val sourceHeight = previewView.height.takeIf { it > 0 } ?: fallbackHeight
         val longEdgeScale = MAX_RECORDING_LONG_EDGE.toDouble() / max(sourceWidth, sourceHeight).toDouble()
         val pixelScale = sqrt(MAX_RECORDING_PIXELS.toDouble() / (sourceWidth * sourceHeight).toDouble())
         val scale = min(1.0, min(longEdgeScale, pixelScale))
@@ -2079,7 +2242,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         val hasSubtitle = watermark.subtitleText.isNotBlank()
         val contentRight = rect.right - padding
         val imageBitmap = cachedImageBitmap ?: decodeWatermarkBitmap(watermark.imagePath, true)
-        val shouldRecycleImageBitmap = cachedImageBitmap == null && imageBitmap != null
+        val shouldRecycleImageBitmap = cachedImageBitmap == null
         var drewContent = false
         if (watermarkRequiresImage(watermark) && imageBitmap == null) {
             canvas.restore()
@@ -2137,8 +2300,12 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             }
         }
 
-        if (shouldRecycleImageBitmap && imageBitmap != null && !imageBitmap.isRecycled) {
-            imageBitmap.recycle()
+        if (shouldRecycleImageBitmap) {
+            imageBitmap?.let {
+                if (!it.isRecycled) {
+                    it.recycle()
+                }
+            }
         }
         canvas.restore()
         return drewContent
@@ -2545,6 +2712,13 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             .put("recordTotalSaveMs", max(0L, totalSaveMs))
             .put("recordFrameCount", recorder.frameCount)
             .put("recordVideoSampleCount", recorder.videoSampleCount)
+            .put("recordVideoBitrate", recorder.bitrate)
+            .put("recordAudioEnabled", recorder.includeAudio)
+            .put("recordAudioSampleCount", recorder.audioSampleCount)
+            .put("recordAudioPcmPeakAbs", recorder.audioPcmPeakAbs)
+            .put("recordAudioReadErrorCount", recorder.audioReadErrorCount)
+            .put("recordAudioDiscardedReadCount", recorder.audioDiscardedReadCount)
+            .put("recordStartWarmupMs", RECORD_START_WARMUP_MS)
             .put("recordFileBytes", max(0L, fileBytes))
             .put("recordHadFrameError", hadFrameError)
     }
@@ -2926,8 +3100,8 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         val width: Int,
         val height: Int,
         private val fps: Int,
-        private val bitrate: Int,
-        private val includeAudio: Boolean = true
+        val bitrate: Int,
+        val includeAudio: Boolean = true
     ) {
         private val frameSize = width * height
         private val quarterFrameSize = frameSize / 4
@@ -2938,13 +3112,16 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         private var audioThread: Thread? = null
         @Volatile private var audioRunning = false
         private var videoStartedAtNs = 0L
-        private var lastVideoPresentationTimeUs = 0L
+        private var lastVideoPresentationTimeUs = -1L
         private var audioStartedAtNs = 0L
+        private var audioCaptureStartedAtNs = 0L
         private var muxer: android.media.MediaMuxer? = null
         private var colorFormat = 0
         private var videoTrackIndex = -1
         private var audioTrackIndex = -1
         private var muxerStarted = false
+        private var videoPresentationOffsetUs = -1L
+        private var audioPresentationOffsetUs = -1L
         private val reusablePixels = IntArray(frameSize)
         private val reusableYuv = ByteArray(frameSize + quarterFrameSize * 2)
         @Volatile private var lastStage = RECORD_STAGE_RECORDER_IDLE
@@ -2953,6 +3130,14 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         var frameCount: Int = 0
             private set
         var videoSampleCount: Int = 0
+            private set
+        var audioSampleCount: Int = 0
+            private set
+        var audioPcmPeakAbs: Int = 0
+            private set
+        var audioReadErrorCount: Int = 0
+            private set
+        var audioDiscardedReadCount: Int = 0
             private set
 
         fun start() {
@@ -2982,14 +3167,15 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 setInteger(MediaFormat.KEY_FRAME_RATE, fps)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             }
+            applyVideoBitrateMode(format, codecInfo)
             videoEncoder = atStage(RECORD_STAGE_VIDEO_ENCODER_START) {
                 MediaCodec.createByCodecName(codecInfo.name).apply {
                     configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                     start()
                 }
             }
-            videoStartedAtNs = System.nanoTime()
-            lastVideoPresentationTimeUs = 0L
+            videoStartedAtNs = 0L
+            lastVideoPresentationTimeUs = -1L
         }
 
         @SuppressLint("MissingPermission")
@@ -3075,7 +3261,10 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 audioRecord?.stop()
             } catch (_: Throwable) {
             }
-            audioThread?.join(max(1L, min(1500L, deadlineMs - System.currentTimeMillis())))
+            audioThread?.join(max(1L, deadlineMs - System.currentTimeMillis()))
+            if (audioThread?.isAlive == true) {
+                throw stageFailure(RECORD_STAGE_AUDIO_THREAD_JOIN, IllegalStateException("Timed out waiting for audio encoder thread."))
+            }
             audioThread = null
 
             val activeEncoder = videoEncoder
@@ -3188,7 +3377,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                             if (bufferInfo.size != 0) {
                                 encodedData.position(bufferInfo.offset)
                                 encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                                if (writeMuxerSample(activeMuxer, videoTrackIndex, encodedData, bufferInfo, RECORD_STAGE_MUXER_WRITE_VIDEO_SAMPLE)) {
+                                if (writeMuxerSample(activeMuxer, videoTrackIndex, encodedData, bufferInfo, isAudio = false, RECORD_STAGE_MUXER_WRITE_VIDEO_SAMPLE)) {
                                     videoSampleCount += 1
                                 }
                             }
@@ -3210,16 +3399,33 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             val codec = audioEncoder ?: return
             val recorder = audioRecord ?: return
             val bufferInfo = MediaCodec.BufferInfo()
+            val discardBuffer = ByteArray(recordBufferSize)
             try {
                 recorder.startRecording()
                 while (audioRunning) {
+                    if (System.nanoTime() - audioStartedAtNs < RECORD_START_WARMUP_MS * 1_000_000L) {
+                        val bytesRead = recorder.read(discardBuffer, 0, discardBuffer.size)
+                        if (bytesRead > 0) {
+                            audioDiscardedReadCount += 1
+                        } else if (bytesRead < 0) {
+                            audioReadErrorCount += 1
+                        }
+                        drainAudio(codec, bufferInfo, endOfStream = false)
+                        continue
+                    }
                     val inputIndex = codec.dequeueInputBuffer(TIMEOUT_US)
                     if (inputIndex >= 0) {
                         val inputBuffer = codec.getInputBuffer(inputIndex) ?: continue
                         inputBuffer.clear()
                         val bytesRead = recorder.read(inputBuffer, min(recordBufferSize, inputBuffer.remaining()))
                         if (bytesRead > 0) {
+                            if (audioCaptureStartedAtNs == 0L) {
+                                audioCaptureStartedAtNs = System.nanoTime()
+                            }
+                            updateAudioPeak(inputBuffer, bytesRead)
                             codec.queueInputBuffer(inputIndex, 0, bytesRead, audioPresentationTimeUs(), 0)
+                        } else if (bytesRead < 0) {
+                            audioReadErrorCount += 1
                         }
                     }
                     drainAudio(codec, bufferInfo, endOfStream = false)
@@ -3283,7 +3489,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                         if (bufferInfo.size != 0) {
                             encodedData.position(bufferInfo.offset)
                             encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                            writeMuxerSample(activeMuxer, audioTrackIndex, encodedData, bufferInfo, RECORD_STAGE_MUXER_WRITE_AUDIO_SAMPLE)
+                            if (writeMuxerSample(activeMuxer, audioTrackIndex, encodedData, bufferInfo, isAudio = true, RECORD_STAGE_MUXER_WRITE_AUDIO_SAMPLE)) {
+                                audioSampleCount += 1
+                            }
                         }
                         codec.releaseOutputBuffer(outputIndex, false)
                         if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
@@ -3294,6 +3502,17 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             }
             if (endOfStream) {
                 throw IllegalStateException("Timed out waiting for audio encoder end of stream.")
+            }
+        }
+
+        private fun updateAudioPeak(inputBuffer: java.nio.ByteBuffer, bytesRead: Int) {
+            var index = 0
+            while (index + 1 < bytesRead) {
+                val low = inputBuffer.get(index).toInt() and 0xff
+                val high = inputBuffer.get(index + 1).toInt()
+                val sample = (high shl 8) or low
+                audioPcmPeakAbs = max(audioPcmPeakAbs, abs(sample))
+                index += 2
             }
         }
 
@@ -3322,12 +3541,29 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             trackIndex: Int,
             encodedData: java.nio.ByteBuffer,
             bufferInfo: MediaCodec.BufferInfo,
+            isAudio: Boolean,
             stage: String
         ): Boolean {
             synchronized(muxerLock) {
                 if (!muxerStarted || trackIndex < 0) return false
                 atStage(stage) {
-                    activeMuxer.writeSampleData(trackIndex, encodedData, bufferInfo)
+                    val originalPresentationTimeUs = bufferInfo.presentationTimeUs
+                    if (isAudio) {
+                        if (audioPresentationOffsetUs < 0L) {
+                            audioPresentationOffsetUs = originalPresentationTimeUs
+                        }
+                        bufferInfo.presentationTimeUs = max(0L, originalPresentationTimeUs - audioPresentationOffsetUs)
+                    } else {
+                        if (videoPresentationOffsetUs < 0L) {
+                            videoPresentationOffsetUs = originalPresentationTimeUs
+                        }
+                        bufferInfo.presentationTimeUs = max(0L, originalPresentationTimeUs - videoPresentationOffsetUs)
+                    }
+                    try {
+                        activeMuxer.writeSampleData(trackIndex, encodedData, bufferInfo)
+                    } finally {
+                        bufferInfo.presentationTimeUs = originalPresentationTimeUs
+                    }
                 }
                 return true
             }
@@ -3362,14 +3598,33 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         }
 
         private fun nextVideoPresentationTimeUs(): Long {
-            val elapsedUs = max(0L, (System.nanoTime() - videoStartedAtNs) / 1000L)
-            val nextUs = max(lastVideoPresentationTimeUs + 1L, elapsedUs)
+            val nowNs = System.nanoTime()
+            if (videoStartedAtNs == 0L) {
+                videoStartedAtNs = nowNs
+            }
+            val elapsedUs = max(0L, (nowNs - videoStartedAtNs) / 1000L)
+            val nextUs = if (lastVideoPresentationTimeUs < 0L) {
+                0L
+            } else {
+                max(lastVideoPresentationTimeUs + 1L, elapsedUs)
+            }
             lastVideoPresentationTimeUs = nextUs
             return nextUs
         }
 
         private fun audioPresentationTimeUs(): Long {
-            return max(0L, (System.nanoTime() - audioStartedAtNs) / 1000L)
+            val startedAtNs = if (audioCaptureStartedAtNs > 0L) audioCaptureStartedAtNs else audioStartedAtNs
+            return max(0L, (System.nanoTime() - startedAtNs) / 1000L)
+        }
+
+        private fun applyVideoBitrateMode(format: MediaFormat, codecInfo: MediaCodecInfo) {
+            try {
+                val encoderCapabilities = codecInfo.getCapabilitiesForType(MIME_TYPE).encoderCapabilities
+                if (encoderCapabilities.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)) {
+                    format.setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+                }
+            } catch (_: Throwable) {
+            }
         }
 
         private fun selectEncoder(): MediaCodecInfo {
@@ -3403,7 +3658,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         fun diagnostics(stage: String = currentStage()): String {
             val error = if (lastStageError.isBlank()) "none" else lastStageError
             val failureStage = if (lastFailureStage.isBlank()) "none" else lastFailureStage
-            return "stage=${stage}; recorderStage=${lastStage}; failureStage=${failureStage}; recorderError=${error}; frames=${frameCount}; videoSamples=${videoSampleCount}; muxerStarted=${muxerStarted}; videoTrack=${videoTrackIndex}; audioTrack=${audioTrackIndex}; colorFormat=${colorFormat}"
+            return "stage=${stage}; recorderStage=${lastStage}; failureStage=${failureStage}; recorderError=${error}; frames=${frameCount}; videoSamples=${videoSampleCount}; audioEnabled=${includeAudio}; audioSamples=${audioSampleCount}; audioPeak=${audioPcmPeakAbs}; audioReadErrors=${audioReadErrorCount}; audioDiscardReads=${audioDiscardedReadCount}; videoOffsetUs=${videoPresentationOffsetUs}; audioOffsetUs=${audioPresentationOffsetUs}; muxerStarted=${muxerStarted}; videoTrack=${videoTrackIndex}; audioTrack=${audioTrackIndex}; colorFormat=${colorFormat}"
         }
 
         private fun markStage(stage: String) {
@@ -3523,13 +3778,16 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         const val CAMERA_FRAME_ASPECT_SHORT_EDGE = 3f
         const val CAMERA_FRAME_ASPECT_LONG_EDGE = 4f
         const val PHOTO_JPEG_QUALITY = 90
-        const val MAX_RECORDING_LONG_EDGE = 1440
-        const val MAX_RECORDING_PIXELS = 1_166_400
-        const val MIN_VIDEO_BITRATE = 4_000_000
-        const val MAX_VIDEO_BITRATE = 10_000_000
-        const val VIDEO_BITRATE_PIXEL_DIVISOR = 4
+        const val MAX_RECORDING_LONG_EDGE = 960
+        const val MAX_RECORDING_PIXELS = 691_200
+        const val MIN_VIDEO_BITRATE = 12_000_000
+        const val MAX_VIDEO_BITRATE = 30_000_000
+        const val VIDEO_BITRATE_PIXEL_DIVISOR = 1
+        const val RECORD_START_SOUND_GUARD_MS = 180L
+        const val RECORD_START_WARMUP_MS = 700L
+        const val RECORD_AUDIO_REQUIRED_AFTER_MS = RECORD_START_WARMUP_MS + 500L
         const val WATERMARK_OVERLAY_DIRTY_PADDING_PX = 4
-        const val RECORD_AUDIO_ENABLED = false
+        const val RECORD_AUDIO_ENABLED = true
         const val MIME_TYPE = "video/avc"
         const val AUDIO_SAMPLE_RATE = 44_100
         const val AUDIO_CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
@@ -3548,6 +3806,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         const val RECORD_STAGE_VIDEO_COLOR_FORMAT = "video_color_format"
         const val RECORD_STAGE_VIDEO_ENCODER_START = "video_encoder_start"
         const val RECORD_STAGE_AUDIO_ENCODER_START = "audio_encoder_start"
+        const val RECORD_STAGE_AUDIO_THREAD_JOIN = "audio_thread_join"
         const val RECORD_STAGE_PIXEL_COPY = "pixelcopy"
         const val RECORD_STAGE_FINAL_PIXEL_COPY = "final_pixelcopy"
         const val RECORD_STAGE_WATERMARK_DRAW = "watermark_draw"

@@ -6,6 +6,7 @@
       :style="cameraViewportStyle"
       :mode="mode"
       :target-fps="targetFps"
+      :camera-sound-enabled="cameraSoundEnabled"
       :status-text="nativeStatus"
       @nativeviewready="handleNativeReady"
       @cameraready="handleCameraReady"
@@ -20,7 +21,7 @@
 
     <movable-area class="watermarkLayer" :style="watermarkLayerStyle" v-if="activeWatermark">
       <movable-view
-        class="watermarkBox"
+        class="watermarkGesturePlane"
         :x="watermarkMoveX"
         :y="watermarkMoveY"
         direction="all"
@@ -33,7 +34,12 @@
         @touchend="finishWatermarkTouch"
         @touchcancel="finishWatermarkTouch"
       >
-        <view class="watermarkTransformBox" :key="watermarkRenderKey" :style="watermarkTransformStyle">
+        <view
+          v-if="!watermarkPinchActive()"
+          class="watermarkTransformBox"
+          :key="watermarkRenderKey"
+          :style="watermarkTransformStyle"
+        >
           <view
             class="watermarkContent"
             :style="watermarkContentStyle"
@@ -87,6 +93,60 @@
         </view>
       </movable-view>
     </movable-area>
+    <view class="watermarkPinchVisualLayer" :style="watermarkLayerStyle" v-if="activeWatermark && watermarkPinchActive()">
+      <view class="watermarkTransformBox" :key="watermarkRenderKey" :style="watermarkTransformStyle">
+        <view
+          class="watermarkContent"
+          :style="watermarkContentStyle"
+        >
+          <image
+            v-if="watermarkHasImage"
+            class="watermarkImage"
+            :style="watermarkImageStyle"
+            :src="activeWatermark.imagePath"
+          ></image>
+          <view v-if="watermarkHasText" class="watermarkTextBlock">
+            <text class="watermarkMainText" :style="watermarkMainTextStyle">{{ activeWatermark.mainTitleText }}</text>
+            <text v-if="activeWatermark.subtitleText" class="watermarkSubText" :style="watermarkSubTextStyle">{{ activeWatermark.subtitleText }}</text>
+          </view>
+        </view>
+        <view
+          class="watermarkDelete"
+          :style="watermarkDeleteStyle"
+          @click.stop="clearActiveWatermark"
+          @touchstart.stop="stopWatermarkTouch"
+          @touchmove.stop="stopWatermarkTouch"
+          @touchend.stop="stopWatermarkTouch"
+          @touchcancel.stop="stopWatermarkTouch"
+        >
+          <text class="watermarkDeleteText" :style="watermarkControlTextStyle">×</text>
+        </view>
+        <view
+          class="watermarkRotate"
+          :style="watermarkRotateStyle"
+          @click.stop="rotateWatermarkQuarterTurn"
+          @touchstart.stop="stopWatermarkTouch"
+          @touchmove.stop="stopWatermarkTouch"
+          @touchend.stop="stopWatermarkTouch"
+          @touchcancel.stop="stopWatermarkTouch"
+        >
+          <text class="watermarkRotateText" :style="watermarkControlTextStyle">↻</text>
+        </view>
+        <view
+          class="watermarkResize"
+          :style="watermarkResizeStyle"
+        >
+          <view class="watermarkResizeGlyph" :style="watermarkControlTextStyle">
+            <view class="watermarkResizeTopHorizontal"></view>
+            <view class="watermarkResizeTopVertical"></view>
+            <view class="watermarkResizeTopDiagonal"></view>
+            <view class="watermarkResizeBottomHorizontal"></view>
+            <view class="watermarkResizeBottomVertical"></view>
+            <view class="watermarkResizeBottomDiagonal"></view>
+          </view>
+        </view>
+      </view>
+    </view>
 
     <cover-view class="topBar">
       <cover-view class="topSide">
@@ -134,6 +194,14 @@
 
     <cover-view class="bottomPanel">
       <cover-view class="modeSwitchWrap">
+        <cover-view class="cameraSoundTapArea" @click="toggleCameraSound">
+          <cover-view :class="cameraSoundPillClass">
+            <cover-view class="cameraSoundIcon">
+              <text :class="cameraSoundIconTextClass">♪</text>
+            </cover-view>
+            <text :class="cameraSoundTextClass">{{ cameraSoundModeText }}</text>
+          </cover-view>
+        </cover-view>
         <cover-view class="modeSwitch">
           <cover-view :class="videoModeButtonClass" @click="setMode('video')">
             <text :class="videoModeTextClass">视频</text>
@@ -207,6 +275,10 @@ const WATERMARK_ABSOLUTE_MIN_SCALE = 0.28
 const WATERMARK_MAX_SCALE = 2.2
 const WATERMARK_PINCH_MIN_DISTANCE = 8
 const WATERMARK_PINCH_FRAME_INTERVAL_MS = 16
+const WATERMARK_PINCH_MAX_SCALE_STEP = 0.12
+const WATERMARK_PINCH_SMOOTHING = 0.45
+const WATERMARK_TRACE_LOG = false
+let watermarkTraceAndroidLog = null
 const RECORD_STOP_TIMEOUT_MS = 12000
 const PORTRAIT_LAYOUT_FALLBACK_WIDTH = 375
 const PORTRAIT_LAYOUT_FALLBACK_HEIGHT = 812
@@ -248,6 +320,8 @@ export default {
       recordStartedAt: 0,
       recordElapsedMs: 0,
       recordBlinkOn: true,
+      cameraSoundEnabled: true,
+      cameraSoundPending: false,
       recordTimer: null,
       recordPermissionRetryTimer: null,
       recordStartRetryTimer: null,
@@ -364,6 +438,18 @@ export default {
     recordElapsedText() {
       return this.formatRecordElapsed(this.recordElapsedMs)
     },
+    cameraSoundPillClass() {
+      return this.cameraSoundEnabled ? ['cameraSoundPill', 'cameraSoundPillActive'] : ['cameraSoundPill']
+    },
+    cameraSoundTextClass() {
+      return this.cameraSoundEnabled ? ['cameraSoundText', 'cameraSoundTextActive'] : ['cameraSoundText']
+    },
+    cameraSoundModeText() {
+      return this.cameraSoundEnabled ? '开' : '关'
+    },
+    cameraSoundIconTextClass() {
+      return this.cameraSoundEnabled ? ['cameraSoundIconText', 'cameraSoundTextActive'] : ['cameraSoundIconText']
+    },
     lastMediaThumbClass() {
       const classes = ['resultThumb']
       if (this.lastMediaThumbSource) {
@@ -396,12 +482,12 @@ export default {
       return this.activeWatermark && (this.activeWatermark.mainTitleText || this.activeWatermark.subtitleText)
     },
     watermarkLayerStyle() {
-      const editBounds = this.watermarkEditBounds()
+      const layerBounds = this.watermarkLayerBounds()
       return {
-        left: Math.round(editBounds.left) + 'px',
-        top: Math.round(editBounds.top) + 'px',
-        width: Math.round(editBounds.right - editBounds.left) + 'px',
-        height: Math.round(editBounds.bottom - editBounds.top) + 'px'
+        left: Math.round(layerBounds.left) + 'px',
+        top: Math.round(layerBounds.top) + 'px',
+        width: Math.round(layerBounds.right - layerBounds.left) + 'px',
+        height: Math.round(layerBounds.bottom - layerBounds.top) + 'px'
       }
     },
     watermarkMoveX() {
@@ -421,10 +507,10 @@ export default {
     },
     watermarkBoxStyle() {
       if (this.watermarkPinchActive()) {
-        const editBounds = this.watermarkEditBounds()
+        const layerBounds = this.watermarkLayerBounds()
         return {
-          width: Math.round(editBounds.right - editBounds.left) + 'px',
-          height: Math.round(editBounds.bottom - editBounds.top) + 'px'
+          width: Math.round(layerBounds.right - layerBounds.left) + 'px',
+          height: Math.round(layerBounds.bottom - layerBounds.top) + 'px'
         }
       }
       const frame = this.watermarkLayoutFrame()
@@ -440,9 +526,9 @@ export default {
       const scaleRatio = this.watermarkPinchScaleRatio()
       const transitionDuration = this.watermarkPinchActive() || this.watermarkTransitionDisabled ? '0ms' : '120ms'
       if (this.watermarkPinchActive()) {
-        const editBounds = this.watermarkEditBounds()
-        const centerX = frame.left + metrics.contentWidth / 2 - editBounds.left
-        const centerY = frame.top + metrics.contentHeight / 2 - editBounds.top
+        const layerBounds = this.watermarkLayerBounds()
+        const centerX = frame.left + metrics.contentWidth / 2 - layerBounds.left
+        const centerY = frame.top + metrics.contentHeight / 2 - layerBounds.top
         return {
           left: Math.round(centerX - metrics.boxWidth / 2) + 'px',
           top: Math.round(centerY - metrics.boxHeight / 2) + 'px',
@@ -646,7 +732,15 @@ export default {
       }
     },
     nativeReturnIsEmpty(result) {
-      return result === null || typeof result === 'undefined' || typeof result === 'number'
+      return result === null || typeof result === 'undefined' || typeof result === 'number' || (typeof result === 'string' && result.trim() === '')
+    },
+    triggerHaptic(type) {
+      try {
+        if (typeof uni !== 'undefined' && typeof uni.vibrateShort === 'function') {
+          uni.vibrateShort({ type: type || 'light' })
+        }
+      } catch (error) {
+      }
     },
     acceptedNativeResult(message) {
       return {
@@ -934,6 +1028,10 @@ export default {
       this.watermarkRenderKey += 1
       this.activeWatermark = nextTemplate
       this.watermarkSyncVersion += 1
+      this.traceWatermarkGeometry('template-applied', this.watermarkFrame, {
+        moveX: this.watermarkMovePosition.x,
+        moveY: this.watermarkMovePosition.y
+      })
       this.watermarkTransitionTimer = setTimeout(() => {
         this.watermarkTransitionTimer = null
         this.watermarkTransitionDisabled = false
@@ -1118,7 +1216,7 @@ export default {
     },
     async buildNativeWatermarkPayload() {
       const template = cloneTemplate(this.activeWatermark)
-      const frame = this.watermarkVisibleFrame()
+      const frame = this.watermarkInteractionFrame()
       const viewport = this.cameraViewportBounds()
       const effectiveWidth = Math.max(1, Math.round(frame.width * frame.scale))
       const effectiveHeight = Math.max(1, Math.round(frame.height * frame.scale))
@@ -1162,14 +1260,20 @@ export default {
       if (this.isRecording || this.stopPending || !this.activeWatermark) {
         return
       }
-      if (this.watermarkPinchGesture) {
-        this.watermarkMoveActive = false
-        this.watermarkMoveDraft = null
-        return
-      }
       const detail = event && event.detail ? event.detail : {}
       const moveX = this.pickMoveNumber(detail, 'x')
       const moveY = this.pickMoveNumber(detail, 'y')
+      if (this.watermarkPinchGesture) {
+        this.watermarkMoveActive = false
+        this.watermarkMoveDraft = null
+        if (moveX !== null && moveY !== null) {
+          this.traceWatermarkGeometry('pinch-native-change', this.watermarkPinchPreviewFrame() || this.watermarkFrame, {
+            nativeX: moveX,
+            nativeY: moveY
+          })
+        }
+        return
+      }
       if (moveX === null || moveY === null) {
         return
       }
@@ -1180,6 +1284,14 @@ export default {
         x: moveX,
         y: moveY
       }
+      this.watermarkMovePosition = {
+        x: moveX,
+        y: moveY
+      }
+      this.traceWatermarkGeometry('drag-change', this.watermarkFrameFromMovePosition(moveX, moveY, this.watermarkFrame), {
+        moveX,
+        moveY
+      })
     },
     commitWatermarkMoveDraft(flushNow) {
       if (!this.watermarkMoveDraft || !this.activeWatermark || this.isRecording || this.stopPending) {
@@ -1195,6 +1307,17 @@ export default {
       if (Math.abs(nextFrame.left - this.watermarkFrame.left) < 0.5 && Math.abs(nextFrame.top - this.watermarkFrame.top) < 0.5) {
         return
       }
+      this.traceWatermarkGeometry('drag-commit', {
+        left: nextFrame.left,
+        top: nextFrame.top,
+        width: this.watermarkFrame.width,
+        height: this.watermarkFrame.height,
+        scale: this.watermarkFrame.scale,
+        rotation: this.watermarkFrame.rotation
+      }, {
+        moveX,
+        moveY
+      })
       this.updateWatermarkFrame({
         left: nextFrame.left,
         top: nextFrame.top,
@@ -1239,12 +1362,18 @@ export default {
         height: startFrame.height,
         rotation: startFrame.rotation,
         startFrame,
+        lastScale: startFrame.scale,
         previewScaleRatio: 1,
         commitFrame: null,
         pendingFrame: null,
         lastUpdateAt: 0,
         changed: false
       }
+      this.traceWatermarkGeometry('pinch-start', startFrame, {
+        distance,
+        moveX: this.watermarkMovePositionFromFrame(startFrame).x,
+        moveY: this.watermarkMovePositionFromFrame(startFrame).y
+      })
     },
     updateWatermarkPinch(touchPair) {
       if (!this.watermarkPinchGesture) {
@@ -1277,7 +1406,8 @@ export default {
       const nextLeft = this.watermarkPinchGesture.centerX - this.watermarkPinchGesture.width * rawScale / 2
       const nextTop = this.watermarkPinchGesture.centerY - this.watermarkPinchGesture.height * rawScale / 2
       const maxScale = this.maxWatermarkScale(nextLeft, nextTop, this.watermarkPinchGesture.rotation, this.watermarkPinchGesture.width, this.watermarkPinchGesture.height)
-      const nextScale = this.clampNumber(rawScale, Math.min(WATERMARK_MIN_SCALE, maxScale), maxScale)
+      const previousScale = typeof this.watermarkPinchGesture.lastScale === 'number' ? this.watermarkPinchGesture.lastScale : this.watermarkPinchGesture.startScale
+      const nextScale = this.limitWatermarkPinchScale(rawScale, previousScale, Math.min(WATERMARK_MIN_SCALE, maxScale), maxScale)
       const clamped = this.clampWatermarkFrame(
         this.watermarkPinchGesture.centerX - this.watermarkPinchGesture.width * nextScale / 2,
         this.watermarkPinchGesture.centerY - this.watermarkPinchGesture.height * nextScale / 2,
@@ -1288,6 +1418,8 @@ export default {
       )
       return {
         previewScaleRatio: clamped.scale / this.watermarkPinchGesture.startScale,
+        rawScale: rawScale,
+        appliedScale: nextScale,
         commitFrame: {
           left: clamped.left,
           top: clamped.top,
@@ -1304,25 +1436,52 @@ export default {
         ...this.watermarkPinchGesture,
         previewScaleRatio: update.previewScaleRatio,
         commitFrame: update.commitFrame,
+        lastScale: update.commitFrame.scale,
         pendingFrame: null,
         lastUpdateAt: updateAt,
         changed: true
       }
+      const traceFrame = {
+        left: update.commitFrame.left,
+        top: update.commitFrame.top,
+        width: this.watermarkPinchGesture.startFrame.width,
+        height: this.watermarkPinchGesture.startFrame.height,
+        scale: update.commitFrame.scale,
+        rotation: update.commitFrame.rotation
+      }
+      this.traceWatermarkGeometry('pinch-update', traceFrame, {
+        ratio: update.previewScaleRatio,
+        rawScale: update.rawScale,
+        appliedScale: update.appliedScale
+      })
     },
     finishWatermarkPinch() {
       if (this.watermarkPinchGesture && this.watermarkPinchGesture.pendingFrame) {
-        this.applyWatermarkPinchUpdate(this.watermarkPinchGesture.pendingFrame, Date.now())
+        const shouldApplyPending = this.watermarkPinchGesture.lastUpdateAt <= 0 || Date.now() - this.watermarkPinchGesture.lastUpdateAt >= WATERMARK_PINCH_FRAME_INTERVAL_MS
+        if (shouldApplyPending) {
+          this.applyWatermarkPinchUpdate(this.watermarkPinchGesture.pendingFrame, Date.now())
+        }
       }
       const gesture = this.watermarkPinchGesture
       const changed = gesture && gesture.changed === true
       const commitFrame = gesture ? gesture.commitFrame : null
-      this.clearWatermarkPinchGesture()
       this.watermarkMoveActive = false
       this.watermarkMoveDraft = null
       if (changed && commitFrame) {
+        this.traceWatermarkGeometry('pinch-commit', {
+          left: commitFrame.left,
+          top: commitFrame.top,
+          width: gesture.startFrame.width,
+          height: gesture.startFrame.height,
+          scale: commitFrame.scale,
+          rotation: commitFrame.rotation
+        })
         this.updateWatermarkFrame(commitFrame)
+        this.clearWatermarkPinchGesture()
         this.flushWatermarkSync(false)
+        return
       }
+      this.clearWatermarkPinchGesture()
     },
     clearWatermarkPinchGesture() {
       this.watermarkPinchGesture = null
@@ -1392,19 +1551,123 @@ export default {
       return null
     },
     watermarkVisibleFrame() {
-      const frame = this.watermarkFrame
-      if (!this.watermarkMoveDraft || !this.activeWatermark) {
-        return frame
+      return this.watermarkFrame
+    },
+    watermarkInteractionFrame() {
+      const pinchFrame = this.watermarkPinchPreviewFrame()
+      if (pinchFrame) {
+        return pinchFrame
       }
-      const movedFrame = this.watermarkFrameFromMovePosition(this.watermarkMoveDraft.x, this.watermarkMoveDraft.y, frame)
-      return {
-        left: movedFrame.left,
-        top: movedFrame.top,
-        width: frame.width,
-        height: frame.height,
-        scale: frame.scale,
-        rotation: frame.rotation
+      if (this.watermarkMoveDraft && this.activeWatermark) {
+        const movedFrame = this.watermarkFrameFromMovePosition(this.watermarkMoveDraft.x, this.watermarkMoveDraft.y, this.watermarkFrame)
+        return {
+          left: movedFrame.left,
+          top: movedFrame.top,
+          width: this.watermarkFrame.width,
+          height: this.watermarkFrame.height,
+          scale: this.watermarkFrame.scale,
+          rotation: this.watermarkFrame.rotation
+        }
       }
+      return this.watermarkFrame
+    },
+    traceWatermarkGeometry(stage, frame, extra) {
+      if (!WATERMARK_TRACE_LOG || !frame) {
+        return
+      }
+      const traceFrame = {
+        left: typeof frame.left === 'number' ? frame.left : this.watermarkFrame.left,
+        top: typeof frame.top === 'number' ? frame.top : this.watermarkFrame.top,
+        width: typeof frame.width === 'number' ? frame.width : this.watermarkFrame.width,
+        height: typeof frame.height === 'number' ? frame.height : this.watermarkFrame.height,
+        scale: typeof frame.scale === 'number' ? frame.scale : this.watermarkFrame.scale,
+        rotation: typeof frame.rotation === 'number' ? frame.rotation : this.watermarkFrame.rotation
+      }
+      const frameMove = this.watermarkMovePositionFromFrame(traceFrame)
+      const renderX = extra && typeof extra.moveX === 'number' ? extra.moveX : this.watermarkMoveX
+      const renderY = extra && typeof extra.moveY === 'number' ? extra.moveY : this.watermarkMoveY
+      const metrics = this.watermarkBoxMetrics(traceFrame.width, traceFrame.height, traceFrame.scale, traceFrame.rotation)
+      const layerBounds = this.watermarkLayerBounds()
+      const rootWidth = this.watermarkPinchActive()
+        ? layerBounds.right - layerBounds.left
+        : metrics.containerWidth
+      const rootHeight = this.watermarkPinchActive()
+        ? layerBounds.bottom - layerBounds.top
+        : metrics.containerHeight
+      const innerLeft = this.watermarkPinchActive()
+        ? traceFrame.left + metrics.contentWidth / 2 - layerBounds.left - metrics.boxWidth / 2
+        : metrics.transformLeft
+      const innerTop = this.watermarkPinchActive()
+        ? traceFrame.top + metrics.contentHeight / 2 - layerBounds.top - metrics.boxHeight / 2
+        : metrics.transformTop
+      const parts = [
+        '[WATERMARK_TRACE]',
+        stage,
+        'rootX=' + this.formatTraceNumber(renderX),
+        'rootY=' + this.formatTraceNumber(renderY),
+        'rootW=' + this.formatTraceNumber(rootWidth),
+        'rootH=' + this.formatTraceNumber(rootHeight),
+        'frameX=' + this.formatTraceNumber(frameMove.x),
+        'frameY=' + this.formatTraceNumber(frameMove.y),
+        'frameLeft=' + this.formatTraceNumber(traceFrame.left),
+        'frameTop=' + this.formatTraceNumber(traceFrame.top),
+        'frameW=' + this.formatTraceNumber(traceFrame.width),
+        'frameH=' + this.formatTraceNumber(traceFrame.height),
+        'scale=' + this.formatTraceNumber(traceFrame.scale),
+        'rotation=' + this.formatTraceNumber(traceFrame.rotation),
+        'contentW=' + this.formatTraceNumber(metrics.contentWidth),
+        'contentH=' + this.formatTraceNumber(metrics.contentHeight),
+        'boxW=' + this.formatTraceNumber(metrics.boxWidth),
+        'boxH=' + this.formatTraceNumber(metrics.boxHeight),
+        'containerW=' + this.formatTraceNumber(metrics.containerWidth),
+        'containerH=' + this.formatTraceNumber(metrics.containerHeight),
+        'innerX=' + this.formatTraceNumber(innerLeft),
+        'innerY=' + this.formatTraceNumber(innerTop),
+        'innerW=' + this.formatTraceNumber(metrics.boxWidth),
+        'innerH=' + this.formatTraceNumber(metrics.boxHeight)
+      ]
+      if (extra) {
+        if (typeof extra.moveX === 'number') {
+          parts.push('moveX=' + this.formatTraceNumber(extra.moveX))
+        }
+        if (typeof extra.moveY === 'number') {
+          parts.push('moveY=' + this.formatTraceNumber(extra.moveY))
+        }
+        if (typeof extra.distance === 'number') {
+          parts.push('distance=' + this.formatTraceNumber(extra.distance))
+        }
+        if (typeof extra.ratio === 'number') {
+          parts.push('ratio=' + this.formatTraceNumber(extra.ratio))
+        }
+        if (typeof extra.rawScale === 'number') {
+          parts.push('rawScale=' + this.formatTraceNumber(extra.rawScale))
+        }
+        if (typeof extra.appliedScale === 'number') {
+          parts.push('appliedScale=' + this.formatTraceNumber(extra.appliedScale))
+        }
+        if (typeof extra.nativeX === 'number') {
+          parts.push('nativeX=' + this.formatTraceNumber(extra.nativeX))
+        }
+        if (typeof extra.nativeY === 'number') {
+          parts.push('nativeY=' + this.formatTraceNumber(extra.nativeY))
+        }
+      }
+      this.writeWatermarkTrace(parts.join(' '))
+    },
+    writeWatermarkTrace(message) {
+      console.log(message)
+      try {
+        if (typeof plus !== 'undefined' && plus && plus.android) {
+          if (!watermarkTraceAndroidLog) {
+            watermarkTraceAndroidLog = plus.android.importClass('android.util.Log')
+          }
+          watermarkTraceAndroidLog.i('WATERMARK_TRACE', message)
+        }
+      } catch (error) {
+      }
+    },
+    formatTraceNumber(value) {
+      return Math.round(value * 1000) / 1000
     },
     watermarkPinchActive() {
       return this.watermarkPinchGesture !== null
@@ -1445,9 +1708,9 @@ export default {
     watermarkFrameFromMovePosition(moveX, moveY, frame) {
       const baseFrame = frame || this.watermarkFrame
       const metrics = this.watermarkBoxMetrics(baseFrame.width, baseFrame.height, baseFrame.scale, baseFrame.rotation)
-      const editBounds = this.watermarkEditBounds()
-      const nextCenterX = editBounds.left + moveX + metrics.containerWidth / 2
-      const nextCenterY = editBounds.top + moveY + metrics.containerHeight / 2
+      const layerBounds = this.watermarkLayerBounds()
+      const nextCenterX = layerBounds.left + moveX + metrics.containerWidth / 2
+      const nextCenterY = layerBounds.top + moveY + metrics.containerHeight / 2
       return {
         left: nextCenterX - metrics.contentWidth / 2,
         top: nextCenterY - metrics.contentHeight / 2
@@ -1518,6 +1781,15 @@ export default {
     watermarkEditBounds() {
       return this.cameraViewportBounds()
     },
+    watermarkLayerBounds() {
+      const editBounds = this.watermarkEditBounds()
+      return {
+        left: editBounds.left - WATERMARK_HANDLE_PAD,
+        top: editBounds.top - WATERMARK_HANDLE_PAD,
+        right: editBounds.right + WATERMARK_HANDLE_PAD,
+        bottom: editBounds.bottom + WATERMARK_HANDLE_PAD
+      }
+    },
     watermarkContentSize(width, height, scale) {
       return {
         width: Math.max(1, width * scale),
@@ -1555,8 +1827,8 @@ export default {
       const boxWidth = contentSize.width + WATERMARK_HANDLE_PAD * 2
       const boxHeight = contentSize.height + WATERMARK_HANDLE_PAD * 2
       const bounds = this.watermarkRotatedBounds(boxWidth, boxHeight, rotation)
-      const containerWidth = Math.max(1, bounds.width, contentSize.width)
-      const containerHeight = Math.max(1, bounds.height, contentSize.height)
+      const containerWidth = Math.max(1, bounds.width, boxWidth)
+      const containerHeight = Math.max(1, bounds.height, boxHeight)
       return {
         contentWidth: contentSize.width,
         contentHeight: contentSize.height,
@@ -1583,6 +1855,19 @@ export default {
       }
       return this.clampNumber(center, minEdge + size / 2, maxEdge - size / 2)
     },
+    limitWatermarkPinchScale(rawScale, previousScale, minScale, maxScale) {
+      const targetScale = this.clampNumber(rawScale, minScale, maxScale)
+      if (typeof previousScale !== 'number') {
+        return targetScale
+      }
+      const delta = targetScale - previousScale
+      if (Math.abs(delta) <= WATERMARK_PINCH_MAX_SCALE_STEP) {
+        return targetScale
+      }
+      const smoothedDelta = delta * WATERMARK_PINCH_SMOOTHING
+      const limitedDelta = this.clampNumber(smoothedDelta, -WATERMARK_PINCH_MAX_SCALE_STEP, WATERMARK_PINCH_MAX_SCALE_STEP)
+      return this.clampNumber(previousScale + limitedDelta, minScale, maxScale)
+    },
     clampWatermarkFrame(left, top, scale, rotation, width, height) {
       const frameWidth = typeof width === 'number' ? width : this.watermarkFrame.width
       const frameHeight = typeof height === 'number' ? height : this.watermarkFrame.height
@@ -1592,10 +1877,11 @@ export default {
       const size = this.watermarkContentSize(frameWidth, frameHeight, nextScale)
       const metrics = this.watermarkBoxMetrics(frameWidth, frameHeight, nextScale, nextRotation)
       const editBounds = this.watermarkEditBounds()
+      const layerBounds = this.watermarkLayerBounds()
       const centerX = left + size.width / 2
       const centerY = top + size.height / 2
-      const clampedCenterX = this.clampCenterBySize(centerX, editBounds.left, editBounds.right, metrics.containerWidth)
-      const clampedCenterY = this.clampCenterBySize(centerY, editBounds.top, editBounds.bottom, metrics.containerHeight)
+      const clampedCenterX = this.clampCenterBySize(centerX, layerBounds.left, layerBounds.right, metrics.containerWidth)
+      const clampedCenterY = this.clampCenterBySize(centerY, layerBounds.top, layerBounds.bottom, metrics.containerHeight)
       const contentLeft = this.clampNumber(clampedCenterX - size.width / 2, editBounds.left, editBounds.right - size.width)
       const contentTop = this.clampNumber(clampedCenterY - size.height / 2, editBounds.top, editBounds.bottom - size.height)
       return {
@@ -1615,15 +1901,15 @@ export default {
     watermarkMovePositionFromFrame(frame) {
       const sourceFrame = frame || this.watermarkFrame
       const metrics = this.watermarkBoxMetrics(sourceFrame.width, sourceFrame.height, sourceFrame.scale, sourceFrame.rotation)
-      const editBounds = this.watermarkEditBounds()
+      const layerBounds = this.watermarkLayerBounds()
       const size = this.watermarkContentSize(sourceFrame.width, sourceFrame.height, sourceFrame.scale)
       const center = {
         x: sourceFrame.left + size.width / 2,
         y: sourceFrame.top + size.height / 2
       }
       return {
-        x: roundWatermarkPx(center.x - metrics.containerWidth / 2 - editBounds.left),
-        y: roundWatermarkPx(center.y - metrics.containerHeight / 2 - editBounds.top)
+        x: roundWatermarkPx(center.x - metrics.containerWidth / 2 - layerBounds.left),
+        y: roundWatermarkPx(center.y - metrics.containerHeight / 2 - layerBounds.top)
       }
     },
     maxWatermarkScale(left, top, rotation, width, height) {
@@ -1634,16 +1920,17 @@ export default {
       const cos = Math.abs(Math.cos(radians))
       const sin = Math.abs(Math.sin(radians))
       const editBounds = this.watermarkEditBounds()
-      const availableWidth = Math.max(1, editBounds.right - editBounds.left)
-      const availableHeight = Math.max(1, editBounds.bottom - editBounds.top)
+      const layerBounds = this.watermarkLayerBounds()
+      const availableWidth = Math.max(1, layerBounds.right - layerBounds.left)
+      const availableHeight = Math.max(1, layerBounds.bottom - layerBounds.top)
       const rotatedWidthFactor = Math.max(1, frameWidth * cos + frameHeight * sin)
       const rotatedHeightFactor = Math.max(1, frameWidth * sin + frameHeight * cos)
       const handlePadding = WATERMARK_HANDLE_PAD * 2
       const rotatedHandlePadding = handlePadding * (cos + sin)
       const maxWidthScale = (availableWidth - rotatedHandlePadding) / rotatedWidthFactor
       const maxHeightScale = (availableHeight - rotatedHandlePadding) / rotatedHeightFactor
-      const contentMaxWidthScale = availableWidth / frameWidth
-      const contentMaxHeightScale = availableHeight / frameHeight
+      const contentMaxWidthScale = Math.max(1, editBounds.right - editBounds.left) / frameWidth
+      const contentMaxHeightScale = Math.max(1, editBounds.bottom - editBounds.top) / frameHeight
       return Math.max(WATERMARK_ABSOLUTE_MIN_SCALE, Math.min(WATERMARK_MAX_SCALE, maxWidthScale, maxHeightScale, contentMaxWidthScale, contentMaxHeightScale))
     },
     clampNumber(value, min, max) {
@@ -1669,24 +1956,71 @@ export default {
       return '文字'
     },
     goBack() {
-      if (this.isRecording || this.stopPending) {
-        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : '请先停止录像'
+      if (this.isRecording || this.stopPending || this.recordStartPending) {
+        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : (this.recordStartPending ? '录像启动中' : '请先停止录像')
         return
       }
       uni.navigateBack()
     },
     setMode(mode) {
-      if (this.isRecording || this.stopPending) {
-        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : '录像中不能切换模式'
+      if (this.isRecording || this.stopPending || this.recordStartPending) {
+        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : (this.recordStartPending ? '录像启动中不能切换模式' : '录像中不能切换模式')
         return
       }
       if (mode === this.mode) {
         return
       }
+      this.triggerHaptic('light')
       this.recordStartAfterPermission = false
       this.clearRecordPermissionRetry()
       this.clearRecordStartRetry()
       this.mode = mode
+    },
+    async toggleCameraSound() {
+      if (this.cameraSoundPending) {
+        return
+      }
+      this.cameraSoundPending = true
+      this.triggerHaptic('light')
+      const nextEnabled = !this.cameraSoundEnabled
+      this.cameraSoundEnabled = nextEnabled
+      const nativeCamera = this.resolveNativeCamera()
+      try {
+        if (nativeCamera && typeof nativeCamera.setCameraSoundEnabled === 'function') {
+          const nativeResponse = await nativeCamera.setCameraSoundEnabled(nextEnabled)
+          if (!this.nativeReturnIsEmpty(nativeResponse)) {
+            const result = this.normalizeNativeResult(nativeResponse, '提示音设置失败')
+            if (!result.success) {
+              this.cameraSoundEnabled = !nextEnabled
+              this.nativeStatus = result.errorMessage || '提示音设置失败'
+              return
+            }
+            if (result.data && typeof result.data.cameraSoundEnabled === 'boolean') {
+              this.cameraSoundEnabled = result.data.cameraSoundEnabled
+            }
+          }
+        }
+        const statusMessage = this.cameraSoundEnabled ? '提示音已开启' : '提示音已关闭'
+        this.nativeStatus = statusMessage
+        this.showCameraSoundToast(statusMessage)
+      } catch (error) {
+        this.cameraSoundEnabled = !nextEnabled
+        this.nativeStatus = error && error.message ? error.message : '提示音设置失败'
+      } finally {
+        this.cameraSoundPending = false
+      }
+    },
+    showCameraSoundToast(message) {
+      try {
+        if (typeof uni !== 'undefined' && typeof uni.showToast === 'function') {
+          uni.showToast({
+            title: message,
+            icon: 'none',
+            duration: 900
+          })
+        }
+      } catch (error) {
+      }
     },
     async cycleFlashMode() {
       if (this.flashPending) {
@@ -1906,6 +2240,7 @@ export default {
           this.nativeStatus = '拍照接口不可用'
           return
         }
+        this.triggerHaptic('light')
         if (this.activeWatermark && !await this.flushWatermarkSync(true)) {
           return
         }
@@ -1929,6 +2264,7 @@ export default {
           this.nativeStatus = '录像接口不可用'
           return
         }
+        this.triggerHaptic('medium')
         if (!await this.prepareRecordPermissions()) {
           this.recordStartAfterPermission = true
           this.scheduleRecordPermissionRetry()
@@ -1964,6 +2300,7 @@ export default {
         this.nativeStatus = '停止录像接口不可用'
         return
       }
+      this.triggerHaptic('medium')
       this.isRecording = false
       this.stopPending = true
       this.nativeStatus = '正在保存视频'
@@ -2315,14 +2652,19 @@ function roundWatermarkPx(value) {
 
 .watermarkLayer {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
 }
 
-.watermarkBox {
+.watermarkGesturePlane {
   position: absolute;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.watermarkPinchVisualLayer {
+  position: absolute;
+  z-index: 3;
 }
 
 .watermarkTransformBox {
@@ -2773,6 +3115,65 @@ function roundWatermarkPx(value) {
   flex-direction: row;
   align-items: center;
   justify-content: center;
+}
+
+.cameraSoundTapArea {
+  position: absolute;
+  left: 22px;
+  top: -3px;
+  width: 64px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraSoundPill {
+  width: 64px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.72);
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraSoundPillActive {
+  background-color: #ff8a00;
+  border-color: #ff8a00;
+}
+
+.cameraSoundIcon {
+  width: 18px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraSoundIconText {
+  width: 18px;
+  height: 36px;
+  color: #111917;
+  font-size: 17px;
+  font-weight: 900;
+  text-align: center;
+  line-height: 35px;
+}
+
+.cameraSoundText {
+  width: 36px;
+  height: 36px;
+  color: #111917;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+  line-height: 36px;
+}
+
+.cameraSoundTextActive {
+  color: #ffffff;
 }
 
 .modeSwitch {

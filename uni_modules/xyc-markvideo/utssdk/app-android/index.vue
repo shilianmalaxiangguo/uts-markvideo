@@ -28,6 +28,10 @@
         type: Number,
         default: 30
       },
+      cameraSoundEnabled: {
+        type: Boolean,
+        default: true
+      },
       statusText: {
         type: String,
         default: 'XYC native camera preview'
@@ -65,7 +69,7 @@
         immediate: false
       }
     },
-    expose: ['setStatus', 'switchMode', 'setFlashMode', 'setZoomMode', 'switchCamera', 'setWatermark', 'clearWatermark', 'takePhoto', 'startRecord', 'stopRecord', 'openSystemAlbum', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
+    expose: ['setStatus', 'switchMode', 'setFlashMode', 'setZoomMode', 'switchCamera', 'setCameraSoundEnabled', 'setWatermark', 'clearWatermark', 'takePhoto', 'startRecord', 'stopRecord', 'openSystemAlbum', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
     methods: {
       emitNativeEvent(eventName : string, payload : any) {
         if (eventName == 'cameraready') {
@@ -152,6 +156,13 @@
         }
         return view.switchCamera();
       },
+      setCameraSoundEnabled(enabled : boolean) : string {
+        const view = this.requireCameraView();
+        if (view == null) {
+          return nativeViewUnavailable();
+        }
+        return view.setCameraSoundEnabled(enabled);
+      },
       setWatermark(template : any) : string {
         const view = this.requireCameraView();
         if (view == null) {
@@ -234,6 +245,7 @@
       });
       view.setMode(this.mode);
       view.setTargetFps(this.targetFps.toInt());
+      view.setCameraSoundEnabled(this.cameraSoundEnabled);
       view.setStatus(this.statusText);
       this.cameraView = view;
       this.cameraViewLoaded = true;

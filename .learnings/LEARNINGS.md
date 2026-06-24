@@ -1017,6 +1017,66 @@ Android 真机截图显示纯图片水印 logo 顶部被浅灰背景框裁掉。
 
 ---
 
+## [LRN-20260623-C24] best_practice
+
+**Logged**: 2026-06-23T22:40:00+08:00
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+录像开始/停止反馈音要保留，但不能进入麦克风录制窗口。
+
+### Details
+用户先反馈成片开头能听到录像开始提示音，随后明确纠正：不能通过取消录像开始声音来“解决”，iOS 开始录像也有反馈音。正确合同是保留拍照、录像开始、录像停止声音反馈，同时调整时序：开始音应在 `AudioRecord` 启动前播放并留出隔离窗口，停止音应在录音/封装结束后播放，避免系统反馈音被麦克风录进 AAC 音轨。
+
+### Suggested Action
+Android 录像反馈不要删除 `MediaActionSound.START_VIDEO_RECORDING` / `STOP_VIDEO_RECORDING`；应把 recorder/audio 启动从主线程移到后台，并让开始音发生在 `AudioRecord` 前，必要时丢弃启动暖机音频。页面层还应提供点击震动，真机检查成片音轨开头没有提示音。
+
+### Metadata
+- Source: user_feedback
+- Related Files: uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt, test/structure.test.mjs
+- Tags: cameraX, android, audio, MediaActionSound, recording
+- Pattern-Key: uts_markvideo.recording_feedback_sound_not_in_audio_track
+- Recurrence-Count: 1
+- First-Seen: 2026-06-23
+- Last-Seen: 2026-06-23
+
+---
+
+## [LRN-20260623-C25] best_practice
+
+**Logged**: 2026-06-23T23:05:00+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: backend
+
+### Summary
+Android 录像首秒卡顿要用 mp4 packet 时间戳验证，不能只靠 UI 体感或目标 fps 常量。
+
+### Details
+用户反馈录像开头仍卡一秒。真机 mp4 经 `ffprobe -show_packets` 证明第一帧 packet duration 约 `1.4s`，同时视频流仍是 `480x640`、约 `2.7-3.1 Mbps`。正确修法不是把 PTS 硬改成固定 30fps，因为设备实际只能处理 20fps 左右时会导致视频时长被压短；应让第一帧从 0 开始，后续按真实帧间隔递增，并丢弃启动预热段。
+
+### Suggested Action
+后续排查 Android 录像卡顿时，先拉取最新 mp4 并看 `format/streams` 与前几条 video packets；如果第一包 duration 异常，优先检查 PTS 基准、muxer track readiness、启动预热和帧生产节奏。输出尺寸应按实际预览框约束，不要只相信 Camera1 `supportedVideoSizes`。
+
+### Metadata
+- Source: user_feedback
+- Related Files: uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt, test/structure.test.mjs
+- Tags: cameraX, android, recording, pts, bitrate, ffprobe
+- See Also: ERR-20260623-011, LRN-20260623-C24
+- Pattern-Key: uts_markvideo.recording_start_packet_timing_probe
+- Recurrence-Count: 1
+- First-Seen: 2026-06-23
+- Last-Seen: 2026-06-23
+
+### Resolution
+- **Resolved**: 2026-06-23T23:05:00+08:00
+- **Commit/PR**: pending
+- **Notes**: Added warmup discard for video/audio startup, switched video PTS to first-frame-zero plus real elapsed frame intervals, raised target bitrate, and added structure tests for the contracts.
+
+---
+
 ## [LRN-20260623-C18] correction
 
 **Logged**: 2026-06-23T11:26:37+08:00
@@ -1047,5 +1107,155 @@ Android 真机截图显示纯图片水印 logo 顶部被浅灰背景框裁掉。
 - **Resolved**: 2026-06-23T11:26:37+08:00
 - **Commit/PR**: pending
 - **Notes**: Front-camera photo writing and recording frames now apply horizontal source unmirror before watermark drawing, and structure tests cover the no-watermark photo branch too.
+
+---
+
+## [LRN-20260624-C01] correction
+
+**Logged**: 2026-06-24T10:27:41+08:00
+**Priority**: high
+**Status**: pending
+**Area**: frontend
+
+### Summary
+水印缩放闪到左上角这类几帧级问题，先打实时几何日志，不要靠截图或模拟推断。
+
+### Details
+用户指出缩放时水印会在几帧内闪到左上角最小尺寸，模拟和截图不一定能复现。正确诊断路径是让真机缩放过程输出 `[WATERMARK_TRACE]`，同时记录页面计算 frame、渲染根位置、内容尺寸、外接框、容器尺寸、内部 transform 位置，以及 nvue `movable-view` 原生 `@change` 回来的 `x/y`，用日志判断是页面几何突变还是原生移动根突然回到 `0/0`。
+
+### Suggested Action
+后续排查 `pages/cameraX/index.nvue` 的水印缩放/拖拽抽搐时，优先看 `pinch-start`、`pinch-update`、`pinch-native-change`、`pinch-commit` 的 `rootX/rootY/rootW/rootH/frameLeft/frameTop/frameW/frameH/scale/contentW/contentH/boxW/boxH/containerW/containerH/innerX/innerY/nativeX/nativeY/rawScale/appliedScale`。不要先依赖截图模板匹配或本地模拟；让用户真机复现并贴连续日志，再基于跳变字段定位。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.nvue, test/structure.test.mjs
+- Tags: cameraX, watermark, nvue, pinch, logging, geometry
+- See Also: LRN-20260623-C12, LRN-20260623-C13
+- Pattern-Key: uts_markvideo.watermark_pinch_realtime_geometry_log
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+---
+
+## [LRN-20260624-C02] best_practice
+
+**Logged**: 2026-06-24T11:20:12+08:00
+**Priority**: high
+**Status**: pending
+**Area**: frontend
+
+### Summary
+nvue 水印缩放闪到左上角时，不能把可见水印绑在会被原生 pinch 重置的 `movable-view` 根上。
+
+### Details
+真机日志证明，`pinch-start` 时页面计算仍正常：`rootX=63.84 rootY=85.12 frameLeft=69.84 frameTop=175.12 scale=1`。22ms 后 `pinch-native-change` 里原生移动根返回 `nativeX=0 nativeY=0`，同时页面计算的 `frameLeft=69.84 frameTop=175.12 scale=1 innerX=63.84 innerY=85.12` 仍正常。根因不是页面 frame 先塌缩，而是 nvue 原生 `movable-view` 在 pinch 开始时把移动根抢回 `0/0`；如果可见水印仍在这个根里面，就会出现几帧闪到左上角的最小态。
+
+### Suggested Action
+后续修水印 pinch 闪烁时，pinch 期间让 `movable-view` 只做透明手势平面并保持在可接触层；把可见的 `watermarkTransformBox` 放到 sibling 普通 overlay，由页面计算的 preview frame 驱动。不要在 pinch 活跃期间把可见水印放进会回 `0/0` 的原生 movable 根里。
+
+### Metadata
+- Source: device_log
+- Related Files: pages/cameraX/index.nvue, test/structure.test.mjs
+- Tags: cameraX, watermark, nvue, pinch, movable-view, flicker
+- See Also: LRN-20260624-C01, LRN-20260623-C12, LRN-20260623-C13
+- Pattern-Key: uts_markvideo.watermark_pinch_visible_overlay_separate_from_native_root
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+---
+
+## [LRN-20260624-C03] correction
+
+**Logged**: 2026-06-24T13:44:40+08:00
+**Priority**: high
+**Status**: pending
+**Area**: frontend
+
+### Summary
+CameraX 底部声音按钮应控制相机提示音，不是录音状态提示。
+
+### Details
+用户纠正“视频照片 switch 左边的按键”应该是声音 switch，点击后开启或关闭拍照提示音、录像开始提示音和录像结束提示音。之前把它做成“录音开/录音中”的状态提示是概念错位；录音音轨和相机操作提示音是两件事，UI 文案和 native 控制路径都应该使用 camera action sound / MediaActionSound 语义。
+
+### Suggested Action
+后续处理 CameraX 声音按钮时，页面状态应命名为 `cameraSoundEnabled` 一类，并通过 Android 组件桥传给 native；native 的 `playCameraActionSound()` 需要先检查开关，再决定是否播放 `SHUTTER_CLICK`、`START_VIDEO_RECORDING`、`STOP_VIDEO_RECORDING`。不要用 `recordAudioEnabled` 或“录音开”文案表达提示音开关。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.nvue, uni_modules/xyc-markvideo/utssdk/app-android/index.vue, uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt, test/structure.test.mjs
+- Tags: cameraX, sound, MediaActionSound, ui-switch
+- See Also: LRN-20260623-C24
+- Pattern-Key: uts_markvideo.camera_action_sound_switch_not_record_audio
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+---
+
+## [LRN-20260624-C04] correction
+
+**Logged**: 2026-06-24T14:32:50+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 声音 switch 复用闪光灯样式时，不能复用多层点击和 prop watcher 双写。
+
+### Details
+用户反馈喇叭 icon 有问题，且声音开关一直显示开启、切换失败。commit 前审计确认：声音按钮外层、pill、icon、text 都绑定 `@click="toggleCameraSound"` 时，一次点击会冒泡成多次切换；同时页面乐观修改 `cameraSoundEnabled` 后，组件 prop watcher 又写一次 native，页面 ref 调用再写一次 native，会放大竞态和回滚。正确收敛是 UI 沿用闪光灯的 64x36 pill 视觉，但声音按钮只保留一个点击入口，并用 `cameraSoundPending` 防连点；native 写入只走页面显式 ref 调用，组件 watcher 不再重复写。
+
+### Suggested Action
+后续处理 CameraX 小 pill 控件时，先区分“视觉同款”和“交互同款”：如果没有闪光灯那套 pending/tap throttle，就不要在多层子节点重复绑定 click。对通过 prop 传入又通过 ref 调用的 native setter，保留一条写路径，避免 watcher 和页面方法同时写入。
+
+### Metadata
+- Source: user_feedback, subagent_audit
+- Related Files: pages/cameraX/index.nvue, uni_modules/xyc-markvideo/utssdk/app-android/index.vue, test/structure.test.mjs
+- Tags: cameraX, sound, nvue, click-bubbling, UTS, native-bridge
+- See Also: LRN-20260624-C03
+- Pattern-Key: uts_markvideo.camera_sound_switch_single_click_single_native_write
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T14:32:50+08:00
+- **Commit/PR**: pending
+- **Notes**: Sound switch now has one outer click handler, `cameraSoundPending`, empty native-return success handling, no emoji speaker, and no Android component prop watcher duplicate write.
+
+---
+
+## [LRN-20260624-C05] correction
+
+**Logged**: 2026-06-24T14:40:22+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 声音 switch 的图标要干净，切换后要给轻提示。
+
+### Details
+用户指出用多个 `cover-view` 拼出来的喇叭 icon 太丑，并要求开启/关闭有 alert 提示。当前拍摄控制区不适合阻塞式确认弹窗，最小正确处理是换成更轻的符号型声音标识，并在成功切换后用 `uni.showToast({ icon: 'none' })` 显示“提示音已开启/已关闭”。
+
+### Suggested Action
+后续处理 CameraX 底部小 pill 控件时，别为了避免 emoji 就堆复杂几何图形；优先选稳定、简洁的文本符号或已有工作样式。状态变化要同时更新 `nativeStatus` 和给用户可见轻提示，但不要在拍摄页使用阻塞式 modal 打断操作。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.nvue, test/structure.test.mjs
+- Tags: cameraX, sound, ui-icon, toast, nvue
+- See Also: LRN-20260624-C04
+- Pattern-Key: uts_markvideo.camera_sound_switch_clean_icon_toast_feedback
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T14:40:22+08:00
+- **Commit/PR**: pending
+- **Notes**: Replaced the blocky speaker glyph with a compact music-note text icon and added non-blocking `uni.showToast` feedback after successful toggles.
 
 ---
