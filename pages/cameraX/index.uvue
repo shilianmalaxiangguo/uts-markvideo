@@ -1,0 +1,4540 @@
+<template>
+  <view class="page">
+    <view class="cameraViewport" :style="cameraViewportStyleText"></view>
+    <xyc-markvideo
+      ref="nativeCamera"
+      class="nativePreview"
+      :style="cameraViewportStyleText"
+      :mode="mode"
+      :target-fps="targetFps"
+      :camera-sound-enabled="cameraSoundEnabled"
+      :status-text="nativePreviewStatusText"
+      @nativeviewready="handleNativeReady"
+      @cameraready="handleCameraReady"
+      @nativeerror="handleNativeError"
+      @photodone="handlePhotoDone"
+      @recordstart="handleRecordStart"
+      @recorddone="handleRecordDone"
+      @flashchange="handleFlashChange"
+      @zoomchange="handleZoomChange"
+      @camerachange="handleCameraChange"
+    />
+    <view class="cameraDebugBorder" :style="cameraViewportStyleText"></view>
+
+    <view class="watermarkLayer" :style="watermarkLayerStyleValue()" v-if="activeWatermark != null">
+      <view
+        class="watermarkGesturePlane"
+        :style="watermarkGesturePlaneStyleValue()"
+        @touchstart="startWatermarkTouch"
+        @touchmove="moveWatermarkTouch"
+        @touchend="finishWatermarkTouch"
+        @touchcancel="finishWatermarkTouch"
+      >
+        <view
+          v-if="!watermarkPinchActive()"
+          class="watermarkTransformBox"
+          :key="watermarkRenderKey"
+          :style="watermarkTransformStyleValue()"
+        >
+          <view
+            class="watermarkContent"
+            :style="watermarkContentStyleValue()"
+          >
+            <image
+              v-if="watermarkHasImageValue()"
+              class="watermarkImage"
+              :style="watermarkImageStyleValue()"
+              :src="activeWatermarkImagePathValue()"
+            ></image>
+            <view v-if="watermarkHasTextValue()" class="watermarkTextBlock">
+              <text class="watermarkMainText" :style="watermarkMainTextStyleValue()">{{ activeWatermarkMainTitleTextValue() }}</text>
+              <text v-if="watermarkHasSubtitleValue()" class="watermarkSubText" :style="watermarkSubTextStyleValue()">{{ activeWatermarkSubtitleTextValue() }}</text>
+            </view>
+          </view>
+          <view
+            class="watermarkDragSurface"
+            :style="watermarkDragSurfaceStyleValue()"
+            @touchstart.stop="startWatermarkTouch"
+            @touchmove.stop="moveWatermarkTouch"
+            @touchend.stop="finishWatermarkTouch"
+            @touchcancel.stop="finishWatermarkTouch"
+          ></view>
+          <view
+            class="watermarkDelete"
+            :style="watermarkDeleteStyleValue()"
+            @click.stop="clearActiveWatermark"
+            @touchstart.stop="stopWatermarkTouch"
+            @touchmove.stop="stopWatermarkTouch"
+            @touchend.stop="stopWatermarkTouch"
+            @touchcancel.stop="stopWatermarkTouch"
+          >
+            <text class="watermarkDeleteText" :style="watermarkControlTextStyleValue()">×</text>
+          </view>
+          <view
+            class="watermarkRotate"
+            :style="watermarkRotateStyleValue()"
+            @click.stop="rotateWatermarkQuarterTurn"
+            @touchstart.stop="stopWatermarkTouch"
+            @touchmove.stop="stopWatermarkTouch"
+            @touchend.stop="stopWatermarkTouch"
+            @touchcancel.stop="stopWatermarkTouch"
+          >
+            <text class="watermarkRotateText" :style="watermarkControlTextStyleValue()">↻</text>
+          </view>
+          <view
+            class="watermarkResize"
+            :style="watermarkResizeStyleValue()"
+            @touchstart.stop="stopWatermarkTouch"
+            @touchmove.stop="stopWatermarkTouch"
+            @touchend.stop="stopWatermarkTouch"
+            @touchcancel.stop="stopWatermarkTouch"
+          >
+            <view class="watermarkResizeGlyph" :style="watermarkControlTextStyleValue()">
+              <view class="watermarkResizeTopHorizontal"></view>
+              <view class="watermarkResizeTopVertical"></view>
+              <view class="watermarkResizeTopDiagonal"></view>
+              <view class="watermarkResizeBottomHorizontal"></view>
+              <view class="watermarkResizeBottomVertical"></view>
+              <view class="watermarkResizeBottomDiagonal"></view>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+    <view class="watermarkPinchVisualLayer" :style="watermarkLayerStyleValue()" v-if="activeWatermark != null && watermarkPinchActive()">
+      <view class="watermarkTransformBox" :key="watermarkRenderKey" :style="watermarkTransformStyleValue()">
+        <view
+          class="watermarkContent"
+          :style="watermarkContentStyleValue()"
+        >
+          <image
+            v-if="watermarkHasImageValue()"
+            class="watermarkImage"
+            :style="watermarkImageStyleValue()"
+            :src="activeWatermarkImagePathValue()"
+          ></image>
+          <view v-if="watermarkHasTextValue()" class="watermarkTextBlock">
+            <text class="watermarkMainText" :style="watermarkMainTextStyleValue()">{{ activeWatermarkMainTitleTextValue() }}</text>
+            <text v-if="watermarkHasSubtitleValue()" class="watermarkSubText" :style="watermarkSubTextStyleValue()">{{ activeWatermarkSubtitleTextValue() }}</text>
+          </view>
+        </view>
+        <view
+          class="watermarkDelete"
+          :style="watermarkDeleteStyleValue()"
+          @click.stop="clearActiveWatermark"
+          @touchstart.stop="stopWatermarkTouch"
+          @touchmove.stop="stopWatermarkTouch"
+          @touchend.stop="stopWatermarkTouch"
+          @touchcancel.stop="stopWatermarkTouch"
+        >
+          <text class="watermarkDeleteText" :style="watermarkControlTextStyleValue()">×</text>
+        </view>
+        <view
+          class="watermarkRotate"
+          :style="watermarkRotateStyleValue()"
+          @click.stop="rotateWatermarkQuarterTurn"
+          @touchstart.stop="stopWatermarkTouch"
+          @touchmove.stop="stopWatermarkTouch"
+          @touchend.stop="stopWatermarkTouch"
+          @touchcancel.stop="stopWatermarkTouch"
+        >
+          <text class="watermarkRotateText" :style="watermarkControlTextStyleValue()">↻</text>
+        </view>
+        <view
+          class="watermarkResize"
+          :style="watermarkResizeStyleValue()"
+          @touchstart.stop="stopWatermarkTouch"
+          @touchmove.stop="stopWatermarkTouch"
+          @touchend.stop="stopWatermarkTouch"
+          @touchcancel.stop="stopWatermarkTouch"
+        >
+          <view class="watermarkResizeGlyph" :style="watermarkControlTextStyleValue()">
+            <view class="watermarkResizeTopHorizontal"></view>
+            <view class="watermarkResizeTopVertical"></view>
+            <view class="watermarkResizeTopDiagonal"></view>
+            <view class="watermarkResizeBottomHorizontal"></view>
+            <view class="watermarkResizeBottomVertical"></view>
+            <view class="watermarkResizeBottomDiagonal"></view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="topBar">
+      <view class="topSide">
+        <view class="backButton" @click="goBack">
+          <text class="backIcon">‹</text>
+        </view>
+      </view>
+      <view class="topTitleBox">
+        <text class="topTitle">{{ mode === 'video' ? '视频' : '照片' }}</text>
+        <text class="topSub">{{ nativeStatus }}</text>
+      </view>
+      <view class="topRightSide">
+        <view class="flashTapArea" @click="cycleFlashMode">
+          <view :class="flashPillClass">
+            <text :class="flashIconClass">⚡︎</text>
+            <text :class="flashTextClass">{{ flashModeText }}</text>
+          </view>
+        </view>
+        <view class="switchCameraTapArea" @click.stop="switchCameraFacing">
+          <view :class="switchCameraButtonClass">
+            <text class="switchCameraIcon">⇄</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="recordHud" v-if="isRecording">
+      <view class="recordBubble">
+        <view :class="recordDotClass"></view>
+        <text class="recordHudText">{{ recordElapsedText }}</text>
+      </view>
+    </view>
+
+    <view class="zoomRail" :style="zoomRailStyle">
+      <view :class="wideZoomButtonClass" @click="setZoomMode('wide')">
+        <text :class="wideZoomTextClass">广角</text>
+      </view>
+      <view :class="normalZoomButtonClass" @click="setZoomMode('1x')">
+        <text :class="normalZoomTextClass">1x</text>
+      </view>
+      <view :class="teleZoomButtonClass" @click="setZoomMode('2x')">
+        <text :class="teleZoomTextClass">2x</text>
+      </view>
+    </view>
+
+    <view class="bottomPanel" :style="bottomPanelStyle">
+      <view class="modeSwitchWrap" :style="modeSwitchWrapStyle">
+        <view class="cameraSoundTapArea" @click="toggleCameraSound">
+          <view :class="cameraSoundPillClass">
+            <view class="cameraSoundIcon">
+              <text :class="cameraSoundIconTextClass">♪</text>
+            </view>
+            <text :class="cameraSoundTextClass">{{ cameraSoundModeText }}</text>
+          </view>
+        </view>
+        <view class="modeSwitch">
+          <view :class="modeThumbClass"></view>
+          <view class="modeButton" @click="setMode('video')">
+            <text :class="videoModeTextClass">视频</text>
+          </view>
+          <view class="modeButton" @click="setMode('photo')">
+            <text :class="photoModeTextClass">照片</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="mainControls" :style="mainControlsStyle">
+        <view class="shutterWrap">
+          <view :class="shutterClass" @click="pressShutter">
+            <view :class="shutterCoreClass"></view>
+          </view>
+        </view>
+        <view class="resultButton controlLeft" @click="openSystemAlbum">
+          <view :class="lastMediaThumbClass">
+            <image v-if="lastMediaHasThumb()" class="resultThumbImage" :src="lastMediaThumbSourceValue()"></image>
+            <text v-if="lastMediaThumbMissing()" class="resultThumbIcon">相</text>
+            <text v-if="lastMediaIsVideo()" class="resultVideoBadge">▶</text>
+          </view>
+        </view>
+        <view class="cameraButton controlRight" @click="openWatermarkSheet">
+          <text class="cameraIcon">印</text>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="showWatermarkSheet" class="watermarkSheetMask" @click="closeWatermarkSheet">
+      <view class="watermarkSheet" @click.stop>
+        <view class="watermarkSheetHeader">
+          <text class="watermarkSheetTitle">水印模板</text>
+          <text class="watermarkSheetClose" @click="closeWatermarkSheet">×</text>
+        </view>
+        <view class="watermarkEmpty" v-if="activeWatermarkMissing()">
+          <text class="watermarkEmptyText">选择模板后，可拖拽、缩放，点左上角旋转。</text>
+        </view>
+        <view
+          v-for="template in watermarkTemplates"
+          :key="template.templateId"
+          :class="watermarkTemplateCardClass(template)"
+          @click="selectWatermarkTemplate(template)"
+        >
+          <view class="watermarkPreview" :style="{ backgroundColor: template.boxBackgroundColor }">
+            <image v-if="watermarkTemplateHasImage(template)" class="watermarkPreviewImage" :src="template.imagePath"></image>
+            <view v-if="watermarkTemplateHasText(template)" class="watermarkPreviewText">
+              <text class="watermarkPreviewTitle">{{ template.mainTitleText }}</text>
+              <text v-if="watermarkTemplateHasSubtitle(template)" class="watermarkPreviewSub">{{ template.subtitleText }}</text>
+            </view>
+          </view>
+          <view class="watermarkTemplateMeta">
+            <text class="watermarkTemplateName">{{ template.templateName }}</text>
+            <text class="watermarkTemplateType">{{ templateTypeLabel(template.templateType) }}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts">
+import { XycMarkvideoElement } from 'uts.sdk.modules.xycMarkvideo'
+
+const WATERMARK_STORAGE_KEY = 'xyc-camera-watermark-template'
+const WATERMARK_HANDLE_PAD = 30
+const WATERMARK_HANDLE_SIZE = 42
+const WATERMARK_HANDLE_INSET = 9
+const WATERMARK_DEFAULT_MIN_WIDTH = 92
+const WATERMARK_DEFAULT_MIN_HEIGHT = 64
+const WATERMARK_MIN_SCALE = 0.55
+const WATERMARK_ABSOLUTE_MIN_SCALE = 0.28
+const WATERMARK_MAX_SCALE = 2.2
+const WATERMARK_PINCH_MIN_DISTANCE = 8
+const WATERMARK_PINCH_FRAME_INTERVAL_MS = 16
+const WATERMARK_PINCH_MAX_SCALE_STEP = 0.12
+const WATERMARK_PINCH_SMOOTHING = 0.45
+const WATERMARK_TRACE_LOG = false
+const RECORD_STOP_TIMEOUT_MS = 12000
+const PORTRAIT_LAYOUT_FALLBACK_WIDTH = 375
+const PORTRAIT_LAYOUT_FALLBACK_HEIGHT = 812
+const CAMERA_TOP_BAR_HEIGHT = 60
+const CAMERA_MODE_SWITCH_HEIGHT = 36
+const CAMERA_MAIN_CONTROLS_HEIGHT = 88
+const CAMERA_CONTROLS_REGULAR_TOP = 8
+const CAMERA_CONTROLS_COMPACT_TOP = 4
+const CAMERA_CONTROLS_REGULAR_GAP = 12
+const CAMERA_CONTROLS_COMPACT_GAP = 4
+const CAMERA_CONTROLS_MIN_BOTTOM_SAFE = 4
+const CAMERA_CONTROLS_REGULAR_BOTTOM_SAFE = 16
+const CAMERA_CONTROLS_MAX_BOTTOM_SAFE = 64
+const CAMERA_CONTROLS_ULTRA_COMPACT_HEIGHT = 140
+const CAMERA_CONTROLS_COMPACT_HEIGHT = 172
+const CAMERA_CONTROLS_RELAXED_HEIGHT = 200
+const CAMERA_VIEWPORT_ASPECT_WIDTH = 3
+const CAMERA_VIEWPORT_ASPECT_HEIGHT = 4
+const RESULT_CACHE_LIMIT = 4
+
+type WatermarkTemplate = {
+  templateId: string,
+  templateName: string,
+  templateType: string,
+  mainTitleText: string,
+  subtitleText: string,
+  mainTitleColor: string,
+  subtitleColor: string,
+  mainTitleFontSize: number,
+  subtitleFontSize: number,
+  mainTitleBold: boolean,
+  subtitleBold: boolean,
+  imagePath: string,
+  imageWidth: number,
+  imageHeight: number,
+  imageTextGap: number,
+  boxWidth: number,
+  boxHeight: number,
+  boxBackgroundColor: string,
+  boxRadius: number,
+  boxPadding: number,
+  opacity: number,
+  positionX: number,
+  positionY: number,
+  scale: number,
+  rotation: number,
+  previewWidth?: number,
+  previewHeight?: number,
+  nativeImagePath?: string
+}
+
+type MediaResult = {
+  id: string,
+  kind: string,
+  title: string,
+  statusText: string,
+  path: string,
+  albumUri: string,
+  albumPath: string,
+  thumbnailPath: string,
+  pathText: string,
+  timeText: string
+}
+
+type NativeCommandResult = {
+  success: boolean,
+  errorCode: string,
+  errorMessage: string,
+  nativeMessage: string,
+  data: UTSJSONObject
+}
+
+type NativeCameraError = {
+  errorCode: string,
+  errorMessage: string,
+  nativeMessage: string,
+  at: number
+}
+
+type HapticType = 'heavy' | 'medium' | 'light'
+
+type WatermarkDragGesture = {
+  startX: number,
+  startY: number,
+  originX: number,
+  originY: number
+}
+
+type ScreenBounds = {
+  width: number,
+  height: number
+}
+
+type CameraViewportBounds = {
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+  width: number,
+  height: number
+}
+
+type CameraPanelBounds = {
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+  width: number,
+  height: number
+}
+
+type CameraControlsLayout = {
+  modeTop: number,
+  modeHeight: number,
+  modeOpacity: number,
+  mainTop: number,
+  mainScale: number
+}
+
+type WatermarkBounds = {
+  left: number,
+  top: number,
+  right: number,
+  bottom: number
+}
+
+type WatermarkFrame = {
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  scale: number,
+  rotation: number
+}
+
+type WatermarkPosition = {
+  left: number,
+  top: number
+}
+
+type WatermarkPoint = {
+  x: number,
+  y: number
+}
+
+type WatermarkTouchPair = {
+  first: WatermarkPoint,
+  second: WatermarkPoint
+}
+
+type WatermarkSize = {
+  width: number,
+  height: number
+}
+
+type WatermarkMetrics = {
+  contentWidth: number,
+  contentHeight: number,
+  boxWidth: number,
+  boxHeight: number,
+  containerWidth: number,
+  containerHeight: number,
+  transformLeft: number,
+  transformTop: number
+}
+
+type WatermarkClampResult = {
+  left: number,
+  top: number,
+  scale: number,
+  rotation: number
+}
+
+type WatermarkFramePatch = {
+  left?: number,
+  top?: number,
+  width?: number,
+  height?: number,
+  scale?: number,
+  rotation?: number
+}
+
+type WatermarkTraceExtra = {
+  moveX?: number,
+  moveY?: number,
+  distance?: number,
+  ratio?: number,
+  rawScale?: number,
+  appliedScale?: number,
+  nativeX?: number,
+  nativeY?: number
+}
+
+type WatermarkPinchUpdate = {
+  previewScaleRatio: number,
+  rawScale: number,
+  appliedScale: number,
+  commitFrame: WatermarkClampResult
+}
+
+type WatermarkPinchGesture = {
+  startDistance: number,
+  startScale: number,
+  centerX: number,
+  centerY: number,
+  width: number,
+  height: number,
+  rotation: number,
+  startFrame: WatermarkFrame,
+  lastScale: number,
+  previewScaleRatio: number,
+  commitFrame: WatermarkClampResult | null,
+  pendingFrame: WatermarkPinchUpdate | null,
+  lastUpdateAt: number,
+  changed: boolean
+}
+
+export default {
+  data() {
+    const screen = resolveScreenBounds()
+    const viewport = resolveCameraViewportBounds(screen.width, screen.height)
+    return {
+      mode: 'photo',
+      targetFps: 30,
+      flashMode: 'off',
+      flashTapAt: 0,
+      flashPending: false,
+      flashCycleMode: 'off',
+      flashLastRequestedMode: 'off',
+      flashRequestSilent: false,
+      flashEventHandled: false,
+      flashEventApplied: true,
+      cameraFacing: 'back',
+      cameraSwitchPending: false,
+      cameraSwitchTapAt: 0,
+      zoomMode: '1x',
+      zoomSelectedMode: '1x',
+      availableZoomModes: ['1x'] as Array<string>,
+      zoomPending: false,
+      zoomLatestRequestMode: '1x',
+      zoomQueuedMode: '',
+      zoomRequestSeq: 0,
+      zoomRequestSilent: false,
+      zoomEventHandled: false,
+      zoomEventApplied: true,
+      nativeStatus: '相机初始化中',
+      nativeReady: false,
+      lastNativeError: null as NativeCameraError | null,
+      isRecording: false,
+      stopPending: false,
+      recordStartPending: false,
+      recordStartPendingTimer: null as number | null,
+      recordStopPendingTimer: null as number | null,
+      recordStartedAt: 0,
+      recordElapsedMs: 0,
+      recordBlinkOn: true,
+      cameraSoundEnabled: true,
+      cameraSoundPending: false,
+      recordTimer: null as number | null,
+      recordPermissionRetryTimer: null as number | null,
+      recordStartRetryTimer: null as number | null,
+      recordPermissionRetryCount: 0,
+      recordStartAfterPermission: false,
+      lastMediaResult: null as MediaResult | null,
+      recentMediaResults: [] as Array<MediaResult>,
+      showWatermarkSheet: false,
+      watermarkTemplates: createWatermarkTemplates() as Array<WatermarkTemplate>,
+      activeWatermark: null as WatermarkTemplate | null,
+      watermarkRenderKey: 0,
+      watermarkTransitionDisabled: false,
+      watermarkTransitionTimer: null as number | null,
+      watermarkFrame: {
+        left: viewport.left + viewport.width * 0.14,
+        top: viewport.top + viewport.height * 0.18,
+        width: viewport.width * 0.62,
+        height: 82,
+        scale: 1,
+        rotation: 0
+      } as WatermarkFrame,
+      watermarkPinchGesture: null as WatermarkPinchGesture | null,
+      watermarkMoveActive: false,
+      watermarkMoveDraft: null as WatermarkPoint | null,
+      watermarkDragGesture: null as WatermarkDragGesture | null,
+      watermarkSyncTimer: null as number | null,
+      watermarkSyncVersion: 0,
+      watermarkSyncedVersion: -1,
+      watermarkMovePosition: {
+        x: 0,
+        y: 0
+      } as WatermarkPoint,
+      screenWidth: screen.width as number,
+      previewHeight: screen.height as number
+    }
+  },
+  computed: {
+    modeThumbClass() {
+      return this.mode == 'video' ? ['modeThumb', 'modeThumbVideo'] : ['modeThumb', 'modeThumbPhoto']
+    },
+    videoModeTextClass() {
+      return this.mode == 'video' ? ['modeText', 'modeTextSelected'] : ['modeText']
+    },
+    photoModeTextClass() {
+      return this.mode == 'photo' ? ['modeText', 'modeTextSelected'] : ['modeText']
+    },
+    flashPillClass() {
+      return this.flashMode == 'off' ? ['flashPill'] : ['flashPill', 'flashPillActive']
+    },
+    flashIconClass() {
+      return this.flashMode == 'off' ? ['flashIcon'] : ['flashIcon', 'flashTextActive']
+    },
+    flashTextClass() {
+      return this.flashMode == 'off' ? ['flashText'] : ['flashText', 'flashTextActive']
+    },
+    flashModeText() {
+      if (this.flashMode == 'on') {
+        return '开'
+      }
+      if (this.flashMode == 'auto') {
+        return '自动'
+      }
+      return '关'
+    },
+    switchCameraButtonClass() {
+      const classes = ['switchCameraButton']
+      if (this.cameraFacing === 'front') {
+        classes.push('switchCameraButtonActive')
+      }
+      if (this.cameraSwitchPending) {
+        classes.push('switchCameraButtonPending')
+      }
+      return classes
+    },
+    wideZoomButtonClass() {
+      return this.zoomSelectedMode == 'wide' ? ['zoomButton', 'zoomButtonSelected'] : ['zoomButton']
+    },
+    normalZoomButtonClass() {
+      return this.zoomSelectedMode == '1x' ? ['zoomButton', 'zoomButtonSelected'] : ['zoomButton']
+    },
+    teleZoomButtonClass() {
+      return this.zoomSelectedMode == '2x' ? ['zoomButton', 'zoomButtonSelected'] : ['zoomButton']
+    },
+    wideZoomTextClass() {
+      return this.zoomSelectedMode == 'wide' ? ['zoomText', 'zoomTextSelected'] : ['zoomText']
+    },
+    normalZoomTextClass() {
+      return this.zoomSelectedMode == '1x' ? ['zoomText', 'zoomTextSelected'] : ['zoomText']
+    },
+    teleZoomTextClass() {
+      return this.zoomSelectedMode == '2x' ? ['zoomText', 'zoomTextSelected'] : ['zoomText']
+    },
+    nativePreviewStatusText() {
+      if (toastOnlyStatus(this.nativeStatus)) {
+        return ''
+      }
+      return this.nativeStatus
+    },
+    shutterClass() {
+      const classes = ['shutter']
+      if (this.mode === 'video') {
+        classes.push('shutterVideo')
+      }
+      if (this.isRecording && !this.stopPending) {
+        classes.push('shutterRecording')
+      }
+      return classes
+    },
+    shutterCoreClass() {
+      if (this.isRecording && !this.stopPending) {
+        return ['shutterCore', 'shutterCoreVideo', 'shutterCoreRecording']
+      }
+      return this.mode === 'video' ? ['shutterCore', 'shutterCoreVideo'] : ['shutterCore']
+    },
+    recordDotClass() {
+      return this.recordBlinkOn ? ['recordDot'] : ['recordDot', 'recordDotDim']
+    },
+    recordElapsedText() {
+      return this.formatRecordElapsed(this.recordElapsedMs)
+    },
+    cameraSoundPillClass() {
+      return this.cameraSoundEnabled ? ['cameraSoundPill', 'cameraSoundPillActive'] : ['cameraSoundPill']
+    },
+    cameraSoundTextClass() {
+      return this.cameraSoundEnabled ? ['cameraSoundText', 'cameraSoundTextActive'] : ['cameraSoundText']
+    },
+    cameraSoundModeText() {
+      return this.cameraSoundEnabled ? '开' : '关'
+    },
+    cameraSoundIconTextClass() {
+      return this.cameraSoundEnabled ? ['cameraSoundIconText', 'cameraSoundTextActive'] : ['cameraSoundIconText']
+    },
+    lastMediaThumbClass() {
+      const classes = ['resultThumb']
+      if (this.lastMediaHasThumb()) {
+        classes.push('resultThumbFilled')
+      }
+      if (this.lastMediaIsVideo()) {
+        classes.push('resultThumbVideo')
+      }
+      return classes
+    },
+    lastMediaThumbSource() {
+      if (this.lastMediaResult == null) {
+        return ''
+      }
+      return safeString(this.lastMediaResult.thumbnailPath, '')
+    },
+    cameraViewportStyle() {
+      const viewport = this.cameraViewportBounds()
+      return {
+        left: Math.round(viewport.left) + 'px',
+        top: Math.round(viewport.top) + 'px',
+        width: Math.round(viewport.width) + 'px',
+        height: Math.round(viewport.height) + 'px'
+      }
+    },
+    cameraViewportStyleText() {
+      const viewport = this.cameraViewportBounds()
+      return 'left:' + Math.round(viewport.left) + 'px;top:' + Math.round(viewport.top) + 'px;width:' + Math.round(viewport.width) + 'px;height:' + Math.round(viewport.height) + 'px;'
+    },
+    bottomPanelStyle() {
+      const panel = this.cameraBottomPanelBounds()
+      return {
+        left: Math.round(panel.left) + 'px',
+        top: Math.round(panel.top) + 'px',
+        width: Math.round(panel.width) + 'px',
+        height: Math.round(panel.height) + 'px'
+      }
+    },
+    modeSwitchWrapStyle() {
+      const panel = this.cameraBottomPanelBounds()
+      const layout = resolveCameraControlsLayout(panel.height)
+      return {
+        top: Math.round(layout.modeTop) + 'px',
+        height: Math.round(layout.modeHeight) + 'px',
+        opacity: layout.modeOpacity
+      }
+    },
+    mainControlsStyle() {
+      const panel = this.cameraBottomPanelBounds()
+      const layout = resolveCameraControlsLayout(panel.height)
+      return {
+        top: Math.round(layout.mainTop) + 'px',
+        transform: 'scale(' + (Math.round(layout.mainScale * 1000) / 1000) + ')'
+      }
+    },
+    zoomRailStyle() {
+      const viewport = this.cameraViewportBounds()
+      return {
+        top: Math.round(viewport.bottom - 56) + 'px'
+      }
+    },
+    watermarkHasImage() {
+      if (this.activeWatermark == null) {
+        return false
+      }
+      return hasText(this.activeWatermark.imagePath)
+    },
+	    watermarkHasText() {
+	      if (this.activeWatermark == null) {
+	        return false
+	      }
+	      return hasText(this.activeWatermark.mainTitleText) || hasText(this.activeWatermark.subtitleText)
+	    },
+	    watermarkHasSubtitle() {
+	      return hasText(this.activeWatermarkSubtitleText)
+	    },
+	    activeWatermarkImagePath() {
+	      if (this.activeWatermark == null) {
+	        return ''
+	      }
+	      return safeString(this.activeWatermark.imagePath, '')
+	    },
+	    activeWatermarkMainTitleText() {
+	      if (this.activeWatermark == null) {
+	        return ''
+	      }
+	      return safeString(this.activeWatermark.mainTitleText, '')
+	    },
+	    activeWatermarkSubtitleText() {
+	      if (this.activeWatermark == null) {
+	        return ''
+	      }
+	      return safeString(this.activeWatermark.subtitleText, '')
+	    },
+    watermarkLayerStyle() {
+      const layerBounds = this.watermarkLayerBounds()
+      return {
+        left: Math.round(layerBounds.left) + 'px',
+        top: Math.round(layerBounds.top) + 'px',
+        width: Math.round(layerBounds.right - layerBounds.left) + 'px',
+        height: Math.round(layerBounds.bottom - layerBounds.top) + 'px'
+      }
+    },
+    watermarkMoveX(): number {
+      if (this.watermarkPinchActive()) {
+        return 0
+      }
+      return this.watermarkMovePosition.x
+    },
+    watermarkMoveY(): number {
+      if (this.watermarkPinchActive()) {
+        return 0
+      }
+      return this.watermarkMovePosition.y
+    },
+    watermarkBoxStyle() {
+      if (this.watermarkPinchActive()) {
+        const layerBounds = this.watermarkLayerBounds()
+        return {
+          width: Math.round(layerBounds.right - layerBounds.left) + 'px',
+          height: Math.round(layerBounds.bottom - layerBounds.top) + 'px'
+        }
+      }
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      return {
+        width: Math.round(metrics.containerWidth) + 'px',
+        height: Math.round(metrics.containerHeight) + 'px'
+      }
+    },
+    watermarkGesturePlaneStyle() {
+      let width = ''
+      let height = ''
+      if (this.watermarkPinchActive()) {
+        const layerBounds = this.watermarkLayerBounds()
+        width = Math.round(layerBounds.right - layerBounds.left) + 'px'
+        height = Math.round(layerBounds.bottom - layerBounds.top) + 'px'
+      } else {
+        const frame = this.watermarkLayoutFrame()
+        const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+        width = Math.round(metrics.containerWidth) + 'px'
+        height = Math.round(metrics.containerHeight) + 'px'
+      }
+      return {
+        left: Math.round(this.watermarkPinchActive() ? 0 : this.watermarkMovePosition.x) + 'px',
+        top: Math.round(this.watermarkPinchActive() ? 0 : this.watermarkMovePosition.y) + 'px',
+        width,
+        height
+      }
+    },
+    watermarkTransformStyle() {
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      const scaleRatio = this.watermarkPinchScaleRatio()
+      const transitionDuration = this.watermarkPinchActive() || this.watermarkTransitionDisabled ? '0ms' : '120ms'
+      if (this.watermarkPinchActive()) {
+        const layerBounds = this.watermarkLayerBounds()
+        const centerX = frame.left + metrics.contentWidth / 2 - layerBounds.left
+        const centerY = frame.top + metrics.contentHeight / 2 - layerBounds.top
+        return {
+          left: Math.round(centerX - metrics.boxWidth / 2) + 'px',
+          top: Math.round(centerY - metrics.boxHeight / 2) + 'px',
+          width: Math.round(metrics.boxWidth) + 'px',
+          height: Math.round(metrics.boxHeight) + 'px',
+          transformOrigin: '50% 50%',
+          transform: 'rotate(' + frame.rotation + 'deg) scale(' + scaleRatio + ')',
+          transitionProperty: 'left, top, width, height, transform',
+          transitionDuration,
+          transitionTimingFunction: 'ease-out'
+        }
+      }
+      return {
+        left: Math.round(metrics.transformLeft) + 'px',
+        top: Math.round(metrics.transformTop) + 'px',
+        width: Math.round(metrics.boxWidth) + 'px',
+        height: Math.round(metrics.boxHeight) + 'px',
+        transformOrigin: '50% 50%',
+        transform: 'rotate(' + frame.rotation + 'deg) scale(' + scaleRatio + ')',
+        transitionProperty: 'left, top, width, height, transform',
+        transitionDuration,
+        transitionTimingFunction: 'ease-out'
+      }
+    },
+    watermarkRotateStyle() {
+      return this.watermarkControlStyle(WATERMARK_HANDLE_INSET, WATERMARK_HANDLE_INSET)
+    },
+    watermarkDeleteStyle() {
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      return this.watermarkControlStyle(metrics.boxWidth - WATERMARK_HANDLE_INSET - WATERMARK_HANDLE_SIZE, WATERMARK_HANDLE_INSET)
+    },
+    watermarkResizeStyle() {
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      return this.watermarkControlStyle(metrics.boxWidth - WATERMARK_HANDLE_INSET - WATERMARK_HANDLE_SIZE, metrics.boxHeight - WATERMARK_HANDLE_INSET - WATERMARK_HANDLE_SIZE)
+    },
+    watermarkControlTextStyle() {
+      const frame = this.watermarkLayoutFrame()
+      return {
+        transformOrigin: '50% 50%',
+        transform: 'rotate(' + (-frame.rotation) + 'deg)'
+      }
+    },
+	    watermarkContentStyle() {
+	      if (this.activeWatermark == null) {
+	        return {}
+	      }
+      return {
+        backgroundColor: this.activeWatermark.boxBackgroundColor,
+        borderRadius: this.activeWatermark.boxRadius + 'px',
+        opacity: this.activeWatermark.opacity,
+        left: WATERMARK_HANDLE_PAD + 'px',
+        top: WATERMARK_HANDLE_PAD + 'px',
+        right: WATERMARK_HANDLE_PAD + 'px',
+        bottom: WATERMARK_HANDLE_PAD + 'px',
+        padding: Math.round(this.activeWatermark.boxPadding * this.watermarkLayoutFrame().scale) + 'px'
+      }
+    },
+	    watermarkImageStyle() {
+	      if (this.activeWatermark == null) {
+	        return {}
+	      }
+      return {
+        width: Math.round(this.activeWatermark.imageWidth * this.watermarkLayoutFrame().scale) + 'px',
+        height: Math.round(this.activeWatermark.imageHeight * this.watermarkLayoutFrame().scale) + 'px',
+        marginRight: this.watermarkHasText ? Math.round(this.activeWatermark.imageTextGap * this.watermarkLayoutFrame().scale) + 'px' : '0px'
+      }
+    },
+	    watermarkMainTextStyle() {
+	      if (this.activeWatermark == null) {
+	        return {}
+	      }
+      return {
+        color: this.activeWatermark.mainTitleColor,
+        fontSize: Math.round(this.activeWatermark.mainTitleFontSize * this.watermarkLayoutFrame().scale) + 'px'
+      }
+    },
+	    watermarkSubTextStyle() {
+	      if (this.activeWatermark == null) {
+	        return {}
+	      }
+      return {
+        color: this.activeWatermark.subtitleColor,
+        fontSize: Math.round(this.activeWatermark.subtitleFontSize * this.watermarkLayoutFrame().scale) + 'px'
+      }
+    }
+  },
+  onLoad() {
+    this.restoreWatermarkFromStorage()
+  },
+  onShow() {
+    if (this.nativeReady) {
+      setTimeout(() => {
+        this.prepareCameraPermissions()
+      }, 250)
+    }
+    if (this.nativeReady && this.nativeStatus === '相机权限未授权') {
+      setTimeout(() => {
+        this.retryCameraAfterPermission()
+      }, 250)
+    }
+    if (this.recordStartAfterPermission) {
+      this.scheduleRecordPermissionRetry()
+    }
+  },
+  onUnload() {
+    const recordTimer = this.recordTimer
+    if (recordTimer !== null) {
+      clearInterval(recordTimer)
+      this.recordTimer = null
+    }
+    this.clearRecordPermissionRetry()
+    this.clearRecordStartRetry()
+    this.clearRecordStartPendingTimer()
+    this.clearRecordStopPendingTimer()
+    this.clearWatermarkPinchGesture()
+    this.clearWatermarkSyncTimer()
+    this.clearWatermarkTransitionTimer()
+  },
+  beforeDestroy() {
+    const recordTimer = this.recordTimer
+    if (recordTimer !== null) {
+      clearInterval(recordTimer)
+      this.recordTimer = null
+    }
+    this.clearRecordPermissionRetry()
+    this.clearRecordStartRetry()
+    this.clearRecordStartPendingTimer()
+    this.clearRecordStopPendingTimer()
+    this.clearWatermarkPinchGesture()
+    this.clearWatermarkSyncTimer()
+    this.clearWatermarkTransitionTimer()
+  },
+  methods: {
+    watermarkHasImageValue() {
+      if (this.activeWatermark == null) {
+        return false
+      }
+      return hasText(this.activeWatermark.imagePath)
+    },
+    watermarkHasTextValue() {
+      if (this.activeWatermark == null) {
+        return false
+      }
+      return hasText(this.activeWatermark.mainTitleText) || hasText(this.activeWatermark.subtitleText)
+    },
+    watermarkHasSubtitleValue() {
+      if (this.activeWatermark == null) {
+        return false
+      }
+      return hasText(this.activeWatermark.subtitleText)
+    },
+    activeWatermarkImagePathValue() {
+      if (this.activeWatermark == null) {
+        return ''
+      }
+      return safeString(this.activeWatermark.imagePath, '')
+    },
+    activeWatermarkMainTitleTextValue() {
+      if (this.activeWatermark == null) {
+        return ''
+      }
+      return safeString(this.activeWatermark.mainTitleText, '')
+    },
+    activeWatermarkSubtitleTextValue() {
+      if (this.activeWatermark == null) {
+        return ''
+      }
+      return safeString(this.activeWatermark.subtitleText, '')
+    },
+    watermarkLayerStyleValue() {
+      const layerBounds = this.watermarkLayerBounds()
+      return {
+        left: Math.round(layerBounds.left) + 'px',
+        top: Math.round(layerBounds.top) + 'px',
+        width: Math.round(layerBounds.right - layerBounds.left) + 'px',
+        height: Math.round(layerBounds.bottom - layerBounds.top) + 'px'
+      }
+    },
+    watermarkGesturePlaneStyleValue() {
+      let width = ''
+      let height = ''
+      if (this.watermarkPinchActive()) {
+        const layerBounds = this.watermarkLayerBounds()
+        width = Math.round(layerBounds.right - layerBounds.left) + 'px'
+        height = Math.round(layerBounds.bottom - layerBounds.top) + 'px'
+      } else {
+        const frame = this.watermarkLayoutFrame()
+        const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+        width = Math.round(metrics.containerWidth) + 'px'
+        height = Math.round(metrics.containerHeight) + 'px'
+      }
+      return {
+        left: Math.round(this.watermarkPinchActive() ? 0 : this.watermarkMovePosition.x) + 'px',
+        top: Math.round(this.watermarkPinchActive() ? 0 : this.watermarkMovePosition.y) + 'px',
+        width,
+        height
+      }
+    },
+    watermarkTransformStyleValue() {
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      const scaleRatio = this.watermarkPinchScaleRatio()
+      const transitionDuration = this.watermarkPinchActive() || this.watermarkTransitionDisabled ? '0ms' : '120ms'
+      if (this.watermarkPinchActive()) {
+        const layerBounds = this.watermarkLayerBounds()
+        const centerX = frame.left + metrics.contentWidth / 2 - layerBounds.left
+        const centerY = frame.top + metrics.contentHeight / 2 - layerBounds.top
+        return {
+          left: Math.round(centerX - metrics.boxWidth / 2) + 'px',
+          top: Math.round(centerY - metrics.boxHeight / 2) + 'px',
+          width: Math.round(metrics.boxWidth) + 'px',
+          height: Math.round(metrics.boxHeight) + 'px',
+          transformOrigin: '50% 50%',
+          transform: 'rotate(' + frame.rotation + 'deg) scale(' + scaleRatio + ')',
+          transitionProperty: 'left, top, width, height, transform',
+          transitionDuration,
+          transitionTimingFunction: 'ease-out'
+        }
+      }
+      return {
+        left: Math.round(metrics.transformLeft) + 'px',
+        top: Math.round(metrics.transformTop) + 'px',
+        width: Math.round(metrics.boxWidth) + 'px',
+        height: Math.round(metrics.boxHeight) + 'px',
+        transformOrigin: '50% 50%',
+        transform: 'rotate(' + frame.rotation + 'deg) scale(' + scaleRatio + ')',
+        transitionProperty: 'left, top, width, height, transform',
+        transitionDuration,
+        transitionTimingFunction: 'ease-out'
+      }
+    },
+    watermarkContentStyleValue() {
+      if (this.activeWatermark == null) {
+        return {}
+      }
+      return {
+        backgroundColor: this.activeWatermark.boxBackgroundColor,
+        borderRadius: this.activeWatermark.boxRadius + 'px',
+        opacity: this.activeWatermark.opacity,
+        left: WATERMARK_HANDLE_PAD + 'px',
+        top: WATERMARK_HANDLE_PAD + 'px',
+        right: WATERMARK_HANDLE_PAD + 'px',
+        bottom: WATERMARK_HANDLE_PAD + 'px',
+        padding: Math.round(this.activeWatermark.boxPadding * this.watermarkLayoutFrame().scale) + 'px'
+      }
+    },
+    watermarkDragSurfaceStyleValue() {
+      return {
+        left: WATERMARK_HANDLE_PAD + 'px',
+        top: WATERMARK_HANDLE_PAD + 'px',
+        right: WATERMARK_HANDLE_PAD + 'px',
+        bottom: WATERMARK_HANDLE_PAD + 'px'
+      }
+    },
+    watermarkImageStyleValue() {
+      if (this.activeWatermark == null) {
+        return {}
+      }
+      return {
+        width: Math.round(this.activeWatermark.imageWidth * this.watermarkLayoutFrame().scale) + 'px',
+        height: Math.round(this.activeWatermark.imageHeight * this.watermarkLayoutFrame().scale) + 'px',
+        marginRight: this.watermarkHasTextValue() ? Math.round(this.activeWatermark.imageTextGap * this.watermarkLayoutFrame().scale) + 'px' : '0px'
+      }
+    },
+    watermarkMainTextStyleValue() {
+      if (this.activeWatermark == null) {
+        return {}
+      }
+      return {
+        color: this.activeWatermark.mainTitleColor,
+        fontSize: Math.round(this.activeWatermark.mainTitleFontSize * this.watermarkLayoutFrame().scale) + 'px'
+      }
+    },
+    watermarkSubTextStyleValue() {
+      if (this.activeWatermark == null) {
+        return {}
+      }
+      return {
+        color: this.activeWatermark.subtitleColor,
+        fontSize: Math.round(this.activeWatermark.subtitleFontSize * this.watermarkLayoutFrame().scale) + 'px'
+      }
+    },
+    watermarkControlTextStyleValue() {
+      const frame = this.watermarkLayoutFrame()
+      return {
+        transformOrigin: '50% 50%',
+        transform: 'rotate(' + (-frame.rotation) + 'deg)'
+      }
+    },
+    watermarkDeleteStyleValue() {
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      return this.watermarkControlStyle(metrics.boxWidth - WATERMARK_HANDLE_INSET - WATERMARK_HANDLE_SIZE, WATERMARK_HANDLE_INSET)
+    },
+    watermarkRotateStyleValue() {
+      return this.watermarkControlStyle(WATERMARK_HANDLE_INSET, WATERMARK_HANDLE_INSET)
+    },
+    watermarkResizeStyleValue() {
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      return this.watermarkControlStyle(metrics.boxWidth - WATERMARK_HANDLE_INSET - WATERMARK_HANDLE_SIZE, metrics.boxHeight - WATERMARK_HANDLE_INSET - WATERMARK_HANDLE_SIZE)
+    },
+    lastMediaThumbSourceValue(): string {
+      if (this.lastMediaResult == null) {
+        return ''
+      }
+      return safeString(this.lastMediaResult.thumbnailPath, '')
+    },
+    lastMediaHasThumb(): boolean {
+      return this.lastMediaThumbSourceValue().length > 0
+    },
+    lastMediaThumbMissing(): boolean {
+      return this.lastMediaThumbSourceValue().length <= 0
+    },
+    lastMediaIsVideo(): boolean {
+      const result = this.lastMediaResult
+      return result != null && result.kind === 'video'
+    },
+    activeWatermarkMissing(): boolean {
+      return this.activeWatermark == null
+    },
+    watermarkTemplateHasImage(template: WatermarkTemplate): boolean {
+      return template.imagePath.length > 0
+    },
+    watermarkTemplateHasText(template: WatermarkTemplate): boolean {
+      return template.templateType !== 'image'
+    },
+    watermarkTemplateHasSubtitle(template: WatermarkTemplate): boolean {
+      return template.subtitleText.length > 0
+    },
+    resolveNativeCamera(): XycMarkvideoElement | null {
+      const nativeCamera = this.$refs['nativeCamera'] as XycMarkvideoElement | null
+      return nativeCamera != null ? nativeCamera : null
+    },
+    eventDetail(payload: UTSJSONObject | null): UTSJSONObject {
+      return payload != null ? payload : {}
+    },
+    applyNativeCameraState(detail: UTSJSONObject | null): void {
+      if (detail == null) {
+        return
+      }
+      const cameraFacing = safeString(detail['cameraFacing'], '')
+      const flashMode = safeString(detail['flashMode'], '')
+      const zoomMode = safeString(detail['zoomMode'], '')
+      this.updateAvailableZoomModes(detail['availableZoomModes'])
+      if (hasText(cameraFacing)) {
+        this.cameraFacing = cameraFacing
+      }
+      if (hasText(flashMode)) {
+        this.flashMode = flashMode
+        this.flashCycleMode = flashMode
+        this.flashLastRequestedMode = flashMode
+      }
+      if (hasText(zoomMode)) {
+        const normalizedZoomMode = normalizeUiZoomMode(zoomMode)
+        const zoomStateMatchesLatestRequest = normalizedZoomMode == this.zoomLatestRequestMode
+        const zoomStateCanUpdateSelection = this.cameraSwitchPending || zoomStateMatchesLatestRequest
+        if (zoomStateCanUpdateSelection) {
+          this.zoomMode = normalizedZoomMode
+          if (!this.zoomPending && !hasText(this.zoomQueuedMode)) {
+            this.zoomSelectedMode = normalizedZoomMode
+            this.zoomLatestRequestMode = normalizedZoomMode
+          }
+        }
+      }
+    },
+    normalizeNativeResult(result: any | null, fallbackMessage: string): NativeCommandResult {
+      if (typeof result === 'string') {
+        return this.parseNativeResultText(result, fallbackMessage)
+      }
+      if (result != null) {
+        return this.nativeResultFromJSONObject(result as UTSJSONObject, fallbackMessage)
+      }
+      return this.nativeFailureResult('9001', safeString(fallbackMessage, '原生相机未返回有效结果'), '')
+    },
+    nativeResultFromJSONObject(source: UTSJSONObject, fallbackMessage: string): NativeCommandResult {
+      const success = source['success']
+      if (typeof success === 'boolean') {
+        const nativeSuccess = success as boolean
+        const rawData = source['data']
+        return {
+          success: nativeSuccess,
+          errorCode: safeString(source['errorCode'], ''),
+          errorMessage: safeString(source['errorMessage'], ''),
+          nativeMessage: safeString(source['nativeMessage'], ''),
+          data: rawData != null ? rawData as UTSJSONObject : {}
+        }
+      }
+      return this.nativeFailureResult('9001', safeString(fallbackMessage, '原生相机未返回有效结果'), '原生返回结构无效')
+    },
+    nativeFailureResult(errorCode: string, errorMessage: string, nativeMessage: string): NativeCommandResult {
+      return {
+        success: false,
+        errorCode,
+        errorMessage,
+        nativeMessage,
+        data: {}
+      }
+    },
+    parseNativeResultText(text: string, fallbackMessage: string): NativeCommandResult {
+      try {
+        const parsed = JSON.parse(text) as UTSJSONObject | null
+        if (parsed != null) {
+          return this.nativeResultFromJSONObject(parsed, fallbackMessage)
+        }
+        return this.nativeFailureResult('9001', safeString(fallbackMessage, '原生相机未返回有效结果'), '原生返回结构无效')
+      } catch (error) {
+        return this.nativeFailureResult('9001', safeString(fallbackMessage, '原生相机未返回有效结果'), '')
+      }
+    },
+    nativeReturnIsEmpty(result: any | null): boolean {
+      return result == null || typeof result === 'number' || (typeof result === 'string' && result.trim() === '')
+    },
+    triggerHaptic(type: any | null): void {
+      const hapticType = normalizeHapticType(safeString(type, 'light'))
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        return
+      }
+      try {
+        nativeCamera.performHapticFeedback(hapticType)
+      } catch (error) {
+      }
+    },
+    acceptedNativeResult(message: string): NativeCommandResult {
+      return {
+        success: true,
+        errorCode: '',
+        errorMessage: '',
+        nativeMessage: '',
+        data: {
+          message: safeString(message, '')
+        }
+      }
+    },
+    async normalizeNativeCommandReturn(result: any | null, fallbackMessage: string, acceptedMessage: string, watchedErrorCodes: Array<string>): Promise<NativeCommandResult> {
+      if (this.nativeReturnIsEmpty(result)) {
+        return await this.waitForNativeCommandResult(fallbackMessage, acceptedMessage, watchedErrorCodes)
+      }
+      return this.normalizeNativeResult(result, fallbackMessage)
+    },
+    waitForNativeCommandResult(fallbackMessage: string, acceptedMessage: string, watchedErrorCodes: Array<string>): Promise<NativeCommandResult> {
+      const startedAt = Date.now()
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const lastError = this.lastNativeError != null ? this.lastNativeError : null
+          if (lastError != null && lastError.at >= startedAt && this.nativeErrorMatches(lastError.errorCode, watchedErrorCodes)) {
+            resolve({
+              success: false,
+              errorCode: safeString(lastError.errorCode, ''),
+              errorMessage: safeString(lastError.errorMessage, safeString(fallbackMessage, '原生相机未返回有效结果')),
+              nativeMessage: safeString(lastError.nativeMessage, ''),
+              data: {}
+            })
+            return
+          }
+          resolve(this.acceptedNativeResult(acceptedMessage))
+        }, 160)
+      })
+    },
+    nativeErrorMatches(errorCode: string, watchedErrorCodes: Array<string>): boolean {
+      if (watchedErrorCodes == null || watchedErrorCodes.length <= 0) {
+        return true
+      }
+      for (let i = 0; i < watchedErrorCodes.length; i += 1) {
+        if (errorCode === watchedErrorCodes[i] || (hasText(errorCode) && errorCode.indexOf(watchedErrorCodes[i]) >= 0)) {
+          return true
+        }
+      }
+      return false
+    },
+    handleNativeReady() {
+      this.nativeReady = true
+      this.nativeStatus = '相机组件已加载'
+      setTimeout(() => {
+        this.prepareCameraPermissions()
+        this.syncWatermarkToNative(false)
+      }, 120)
+    },
+    async handleCameraReady(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      this.applyNativeCameraState(detail)
+      this.nativeStatus = safeString(detail['message'], '相机已准备')
+      const flashApplied = await this.syncFlashMode(this.flashMode, true)
+      if (!flashApplied) {
+        this.flashMode = 'off'
+        this.flashCycleMode = 'off'
+        this.flashLastRequestedMode = 'off'
+      }
+      const zoomSyncBlockedByUserRequest = this.zoomPending || hasText(this.zoomQueuedMode)
+      if (!zoomSyncBlockedByUserRequest) {
+        const zoomApplied = await this.syncZoomMode(this.zoomMode, true)
+        if (!zoomApplied) {
+          const fallbackZoomMode = safeString(detail['zoomMode'], '1x')
+          const normalizedFallbackZoomMode = normalizeUiZoomMode(fallbackZoomMode)
+          this.zoomMode = normalizedFallbackZoomMode
+          this.zoomSelectedMode = normalizedFallbackZoomMode
+          this.zoomLatestRequestMode = normalizedFallbackZoomMode
+        }
+      }
+      this.syncWatermarkToNative(false)
+      setTimeout(() => {
+        this.prepareRecordPermissions(true)
+      }, 180)
+    },
+    handleNativeError(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      const errorCode = safeString(detail['errorCode'], '')
+      this.lastNativeError = {
+        errorCode,
+        errorMessage: safeString(detail['errorMessage'], '相机错误'),
+        nativeMessage: safeString(detail['nativeMessage'], ''),
+        at: Date.now()
+      }
+      if (errorCode === '1501') {
+        return
+      }
+      if (errorCode === '1003' && this.recordStartAfterPermission) {
+        return
+      }
+      if (this.stopPending && hasText(errorCode) && errorCode.indexOf('14') >= 0) {
+        this.stopRecordingClock()
+        this.clearRecordStopPendingTimer()
+        this.isRecording = false
+        this.stopPending = false
+      }
+      if (this.recordStartPending) {
+        this.stopRecordingClock()
+        this.clearRecordStartPendingTimer()
+        this.recordStartPending = false
+        this.isRecording = false
+      }
+      this.nativeStatus = safeString(detail['errorMessage'], '相机错误')
+    },
+    handlePhotoDone(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      this.rememberMediaResult('photo', detail)
+      this.nativeStatus = safeString(detail['message'], '照片已保存到相册')
+    },
+    handleRecordStart(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      if (!this.isRecording || this.recordTimer === null) {
+        this.startRecordingClock()
+      }
+      this.isRecording = true
+      this.clearRecordStartPendingTimer()
+      this.recordStartPending = false
+      this.stopPending = false
+      this.nativeStatus = safeString(detail['message'], '录像中')
+    },
+    handleRecordDone(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      this.stopRecordingClock()
+      this.isRecording = false
+      this.clearRecordStartPendingTimer()
+      this.clearRecordStopPendingTimer()
+      this.recordStartPending = false
+      this.stopPending = false
+      this.rememberMediaResult('video', detail)
+      const savedToAlbum = isBooleanTrue(detail['savedToAlbum'])
+      this.nativeStatus = safeString(detail['message'], savedToAlbum ? '视频已保存到相册' : '视频已生成')
+    },
+    handleFlashChange(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      const applied = !isBooleanFalse(detail['applied'])
+      const flashMode = safeString(detail['flashMode'], '')
+      const requestedFlashMode = safeString(detail['requestedFlashMode'], '')
+      const message = safeString(detail['message'], '')
+      const silent = this.flashRequestSilent
+      this.flashEventHandled = true
+      this.flashEventApplied = applied
+      this.flashRequestSilent = false
+      if (hasText(requestedFlashMode)) {
+        this.flashCycleMode = requestedFlashMode
+        this.flashLastRequestedMode = requestedFlashMode
+      }
+      if (!applied && requestedFlashMode != 'off') {
+        this.nativeStatus = safeString(detail['message'], '当前设备不支持该闪光灯模式')
+        return
+      }
+      if (hasText(flashMode)) {
+        this.flashMode = flashMode
+        this.flashLastRequestedMode = flashMode
+      }
+      if (!silent && hasText(message)) {
+        this.nativeStatus = message
+      }
+    },
+    handleZoomChange(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      const applied = !isBooleanFalse(detail['applied'])
+      const requestedZoomMode = safeString(detail['requestedZoomMode'], '')
+      const zoomMode = safeString(detail['zoomMode'], '')
+      const silent = this.zoomRequestSilent
+      const normalizedRequestedMode = hasText(requestedZoomMode) ? normalizeUiZoomMode(requestedZoomMode) : ''
+      if (hasText(normalizedRequestedMode) && normalizedRequestedMode != this.zoomLatestRequestMode) {
+        return
+      }
+      this.updateAvailableZoomModes(detail['availableZoomModes'])
+      this.zoomEventHandled = true
+      this.zoomEventApplied = applied
+      this.zoomRequestSilent = false
+      if (!applied && hasText(normalizedRequestedMode)) {
+        this.zoomMode = hasText(zoomMode) ? normalizeUiZoomMode(zoomMode) : '1x'
+        this.zoomSelectedMode = this.zoomMode
+        this.zoomLatestRequestMode = this.zoomMode
+        if (!silent) {
+          this.showZoomToast(safeString(detail['message'], '当前设备不支持该焦段'))
+        }
+        return
+      }
+      const appliedZoomMode = hasText(zoomMode) ? normalizeUiZoomMode(zoomMode) : (hasText(normalizedRequestedMode) ? normalizedRequestedMode : this.zoomLatestRequestMode)
+      this.zoomMode = appliedZoomMode
+      this.zoomSelectedMode = appliedZoomMode
+      this.zoomLatestRequestMode = appliedZoomMode
+    },
+    handleCameraChange(event: UTSJSONObject | null) {
+      const detail = this.eventDetail(event)
+      this.applyNativeCameraState(detail)
+      const applied = !isBooleanFalse(detail['applied'])
+      if (!applied) {
+        this.nativeStatus = safeString(detail['message'], '当前设备不支持切换摄像头')
+        return
+      }
+      this.nativeStatus = safeString(detail['message'], this.cameraFacingLabel(this.cameraFacing))
+    },
+    restoreWatermarkFromStorage() {
+      const stored = uni.getStorageSync(WATERMARK_STORAGE_KEY)
+      const template = storedWatermarkTemplate(stored)
+      if (template != null) {
+        this.applyWatermarkTemplate(template)
+      }
+    },
+    openWatermarkSheet() {
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      this.showWatermarkSheet = true
+    },
+    closeWatermarkSheet() {
+      this.showWatermarkSheet = false
+    },
+    async openSystemAlbum() {
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        this.nativeStatus = '原生相册接口不可用'
+        return
+      }
+      const lastMedia = this.lastMediaResult
+      const mediaUri = lastMedia != null ? firstNonEmptyString([lastMedia.albumUri, lastMedia.path]) : ''
+      try {
+        const result = this.normalizeNativeResult(await nativeCamera.openSystemAlbum(mediaUri), '打开系统相册失败')
+        if (!result.success) {
+          this.nativeStatus = safeString(result.errorMessage, '打开系统相册失败')
+          return
+        }
+        const message = result.data != null ? safeString(result.data['message'], '') : ''
+        this.nativeStatus = hasText(message) ? message : '已打开系统相册'
+      } catch (error) {
+        this.nativeStatus = safeErrorMessage(error, '打开系统相册失败')
+      }
+    },
+    rememberMediaResult(kind: string, detail: UTSJSONObject | null) {
+      const source = detail != null ? detail as UTSJSONObject : {}
+      const createdAt = Date.now()
+      const path = firstNonEmptyString([
+        safeString(source['albumUri'], ''),
+        safeString(source['albumPath'], ''),
+        safeString(source['tempFilePath'], ''),
+        safeString(source['path'], '')
+      ])
+      const savedToAlbum = isBooleanTrue(source['savedToAlbum'])
+      const statusText = safeString(source['message'], savedToAlbum ? '已保存到相册' : '已生成，相册保存失败')
+      const nextItem: MediaResult = {
+        id: kind + '-' + createdAt + '-' + this.recentMediaResults.length,
+        kind,
+        title: kind === 'photo' ? '照片' : '视频',
+        statusText,
+        path,
+        albumUri: safeString(source['albumUri'], ''),
+        albumPath: safeString(source['albumPath'], ''),
+        thumbnailPath: this.pickMediaThumbnailPath(kind, source, path),
+        pathText: safeString(path, '暂无路径'),
+        timeText: this.formatMediaResultTime(createdAt)
+      }
+      const nextResults = [nextItem].concat(this.recentMediaResults)
+      this.lastMediaResult = nextItem
+      this.recentMediaResults = nextResults.slice(0, RESULT_CACHE_LIMIT)
+    },
+    pickMediaThumbnailPath(kind: string, source: UTSJSONObject | null, fallbackPath: string): string {
+      const mediaSource = source != null ? source as UTSJSONObject : {}
+      const thumbnailPath = safeString(mediaSource['thumbnailPath'], '')
+      const thumbnailUri = safeString(mediaSource['thumbnailUri'], '')
+      if (hasText(thumbnailPath)) {
+        return thumbnailPath
+      }
+      if (hasText(thumbnailUri)) {
+        return thumbnailUri
+      }
+      if (kind === 'photo') {
+        return firstNonEmptyString([mediaSource['tempFilePath'], mediaSource['path'], mediaSource['albumPath'], mediaSource['albumUri'], fallbackPath])
+      }
+      return ''
+    },
+    formatMediaResultTime(timestamp: number): string {
+      const date = new Date(timestamp)
+      const hours = date.getHours()
+      const minutes = date.getMinutes()
+      const hourText = hours < 10 ? '0' + hours : '' + hours
+      const minuteText = minutes < 10 ? '0' + minutes : '' + minutes
+      return hourText + ':' + minuteText
+    },
+    selectWatermarkTemplate(template: WatermarkTemplate): void {
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      const nextTemplate = cloneTemplate(template)
+      this.applyWatermarkTemplate(nextTemplate)
+      uni.setStorageSync(WATERMARK_STORAGE_KEY, JSON.stringify(nextTemplate))
+      this.showWatermarkSheet = false
+      this.syncWatermarkToNative(false)
+    },
+    applyWatermarkTemplate(template: WatermarkTemplate): void {
+      const nextTemplate = cloneTemplate(template)
+      this.clearWatermarkSyncTimer()
+      this.clearWatermarkTransitionTimer()
+      this.watermarkTransitionDisabled = true
+      this.clearWatermarkPinchGesture()
+      this.watermarkMoveActive = false
+      this.watermarkMoveDraft = null
+      this.watermarkDragGesture = null
+      const viewport = this.cameraViewportBounds()
+      const defaultSize = this.watermarkTemplateFrameSize(nextTemplate, viewport)
+      const initialLeft = viewport.left + viewport.width * safeNumber(nextTemplate.positionX, 0.12)
+      const initialTop = viewport.top + viewport.height * safeNumber(nextTemplate.positionY, 0.16)
+      const initialScale = safeNumber(nextTemplate.scale, 1)
+      const initialRotation = normalizeRotation(safeNumber(nextTemplate.rotation, 0))
+      const clamped = this.clampWatermarkFrame(initialLeft, initialTop, initialScale, initialRotation, defaultSize.width, defaultSize.height)
+      this.watermarkFrame = {
+        left: clamped.left,
+        top: clamped.top,
+        width: defaultSize.width,
+        height: defaultSize.height,
+        scale: clamped.scale,
+        rotation: clamped.rotation
+      }
+      this.watermarkMovePosition = this.watermarkMovePositionFromFrame()
+      this.watermarkRenderKey += 1
+      this.activeWatermark = nextTemplate
+      this.watermarkSyncVersion += 1
+      this.traceWatermarkGeometry('template-applied', this.watermarkFrame, {
+        moveX: this.watermarkMovePosition.x,
+        moveY: this.watermarkMovePosition.y
+      })
+      this.watermarkTransitionTimer = setTimeout(() => {
+        this.watermarkTransitionTimer = null
+        this.watermarkTransitionDisabled = false
+      }, 180)
+    },
+    clearActiveWatermark() {
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      this.clearWatermarkPinchGesture()
+      this.clearWatermarkSyncTimer()
+      this.clearWatermarkTransitionTimer()
+      this.watermarkTransitionDisabled = false
+      this.watermarkPinchGesture = null
+      this.watermarkMoveActive = false
+      this.watermarkMoveDraft = null
+      this.watermarkDragGesture = null
+      this.watermarkSyncVersion += 1
+      this.activeWatermark = null
+      uni.removeStorageSync(WATERMARK_STORAGE_KEY)
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera != null) {
+        nativeCamera.clearWatermark()
+        this.watermarkSyncedVersion = this.watermarkSyncVersion
+      }
+    },
+    stopWatermarkTouch() {
+    },
+    startWatermarkTouch(event: UniTouchEvent | null): void {
+      if (this.isRecording || this.stopPending || this.activeWatermark == null) {
+        return
+      }
+      const touchPair = this.watermarkTouchPair(event, true)
+      if (touchPair != null) {
+        this.startWatermarkPinch(touchPair)
+        return
+      }
+      this.clearWatermarkPinchGesture()
+      this.startWatermarkMove(event)
+    },
+    moveWatermarkTouch(event: UniTouchEvent | null): void {
+      if (this.isRecording || this.stopPending || this.activeWatermark == null) {
+        return
+      }
+      const touchPair = this.watermarkTouchPair(event, true)
+      if (touchPair == null) {
+        if (this.watermarkPinchGesture != null) {
+          return
+        }
+        this.updateWatermarkMove(event)
+        return
+      }
+      if (this.watermarkPinchGesture == null) {
+        this.startWatermarkPinch(touchPair)
+        return
+      }
+      this.updateWatermarkPinch(touchPair)
+    },
+    finishWatermarkTouch(event: UniTouchEvent | null): void {
+      if (this.watermarkPinchGesture != null) {
+        const touchPair = this.watermarkTouchPair(event, false)
+        if (touchPair != null) {
+          this.updateWatermarkPinch(touchPair)
+          return
+        }
+        this.finishWatermarkPinch()
+        return
+      }
+      this.finishWatermarkMove()
+    },
+    startWatermarkMove(event: UniTouchEvent | null): void {
+      if (this.isRecording || this.stopPending || this.activeWatermark == null) {
+        return
+      }
+      if (this.pickTouchSource(event) == null) {
+        return
+      }
+      const point = this.touchPoint(event)
+      this.watermarkMoveActive = true
+      this.watermarkMoveDraft = null
+      this.watermarkDragGesture = {
+        startX: point.x,
+        startY: point.y,
+        originX: this.watermarkMovePosition.x,
+        originY: this.watermarkMovePosition.y
+      }
+    },
+    updateWatermarkMove(event: UniTouchEvent | null): void {
+      if (!this.watermarkMoveActive || this.watermarkDragGesture == null || this.isRecording || this.stopPending || this.activeWatermark == null) {
+        return
+      }
+      const point = this.touchPoint(event)
+      const layerBounds = this.watermarkLayerBounds()
+      const frame = this.watermarkLayoutFrame()
+      const metrics = this.watermarkBoxMetrics(frame.width, frame.height, frame.scale, frame.rotation)
+      const moveX = this.clampNumber(
+        this.watermarkDragGesture.originX + point.x - this.watermarkDragGesture.startX,
+        0,
+        Math.max(0, layerBounds.right - layerBounds.left - metrics.containerWidth)
+      )
+      const moveY = this.clampNumber(
+        this.watermarkDragGesture.originY + point.y - this.watermarkDragGesture.startY,
+        0,
+        Math.max(0, layerBounds.bottom - layerBounds.top - metrics.containerHeight)
+      )
+      this.handleWatermarkMoveChange({
+        detail: {
+          x: moveX,
+          y: moveY
+        }
+      })
+    },
+    rotateWatermarkQuarterTurn() {
+      if (this.isRecording || this.stopPending || this.activeWatermark == null) {
+        this.nativeStatus = '录像中不能编辑水印'
+        return
+      }
+      this.clearWatermarkPinchGesture()
+      const nextRotation = normalizeRotation(this.watermarkFrame.rotation + 90)
+      const clamped = this.clampWatermarkFrame(this.watermarkFrame.left, this.watermarkFrame.top, this.watermarkFrame.scale, nextRotation)
+      this.updateWatermarkFrame({
+        left: clamped.left,
+        top: clamped.top,
+        scale: clamped.scale,
+        rotation: clamped.rotation
+      })
+      this.flushWatermarkSync(false)
+    },
+    updateWatermarkFrame(patch: WatermarkFramePatch): void {
+      const nextWidth = typeof patch.width === 'number' ? patch.width : this.watermarkFrame.width
+      const nextHeight = typeof patch.height === 'number' ? patch.height : this.watermarkFrame.height
+      const clamped = this.clampWatermarkFrame(
+        typeof patch.left === 'number' ? patch.left : this.watermarkFrame.left,
+        typeof patch.top === 'number' ? patch.top : this.watermarkFrame.top,
+        typeof patch.scale === 'number' ? patch.scale : this.watermarkFrame.scale,
+        typeof patch.rotation === 'number' ? patch.rotation : this.watermarkFrame.rotation,
+        nextWidth,
+        nextHeight
+      )
+      this.watermarkFrame = {
+        left: clamped.left,
+        top: clamped.top,
+        width: nextWidth,
+        height: nextHeight,
+        scale: clamped.scale,
+        rotation: clamped.rotation
+      }
+      this.watermarkMovePosition = this.watermarkMovePositionFromFrame()
+      this.watermarkSyncVersion += 1
+    },
+    scheduleWatermarkSync() {
+      if (this.activeWatermark == null || this.isRecording || this.stopPending) {
+        return
+      }
+      this.clearWatermarkSyncTimer()
+      this.watermarkSyncTimer = setTimeout(() => {
+        this.watermarkSyncTimer = null
+        this.syncWatermarkToNative(false)
+      }, 160)
+    },
+    async flushWatermarkSync(showError: boolean): Promise<boolean> {
+      this.clearWatermarkSyncTimer()
+      return await this.syncWatermarkToNative(showError)
+    },
+    clearWatermarkSyncTimer() {
+      const timer = this.watermarkSyncTimer
+      if (timer !== null) {
+        clearTimeout(timer)
+        this.watermarkSyncTimer = null
+      }
+    },
+    clearWatermarkTransitionTimer() {
+      const timer = this.watermarkTransitionTimer
+      if (timer !== null) {
+        clearTimeout(timer)
+        this.watermarkTransitionTimer = null
+      }
+    },
+    watermarkControlStyle(left: number, top: number): UTSJSONObject {
+      return {
+        left: Math.round(left) + 'px',
+        top: Math.round(top) + 'px'
+      }
+    },
+    async syncWatermarkToNative(showError: boolean): Promise<boolean> {
+      const syncVersion = this.watermarkSyncVersion
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        if (showError) {
+          this.nativeStatus = '原生水印接口不可用'
+        }
+        return false
+      }
+      if (this.watermarkSyncedVersion === syncVersion) {
+        return true
+      }
+      if (this.activeWatermark == null) {
+        nativeCamera.clearWatermark()
+        this.watermarkSyncedVersion = syncVersion
+        return true
+      }
+      const payload = await this.buildNativeWatermarkPayload()
+      if (syncVersion !== this.watermarkSyncVersion || this.activeWatermark == null) {
+        return true
+      }
+      try {
+        const result = await this.normalizeNativeCommandReturn(await nativeCamera.setWatermark(payload), '水印设置失败', '水印已更新', ['12', '14'])
+        if (!result.success && showError) {
+          this.nativeStatus = safeString(result.errorMessage, '水印设置失败')
+        }
+        if (result.success) {
+          this.watermarkSyncedVersion = syncVersion
+        }
+        return result.success
+      } catch (error) {
+        if (showError) {
+          this.nativeStatus = safeErrorMessage(error, '水印设置失败')
+        }
+        return false
+      }
+    },
+    async buildNativeWatermarkPayload(): Promise<WatermarkTemplate> {
+      const activeTemplate = this.activeWatermark
+      if (activeTemplate == null) {
+        return cloneTemplate(this.watermarkTemplates[0])
+      }
+      const template = cloneTemplate(activeTemplate)
+      const frame = this.watermarkInteractionFrame()
+      const viewport = this.cameraViewportBounds()
+      const effectiveWidth = Math.max(1, Math.round(frame.width * frame.scale))
+      const effectiveHeight = Math.max(1, Math.round(frame.height * frame.scale))
+      const payloadLeft = this.clampNumber(frame.left, viewport.left, viewport.right - effectiveWidth)
+      const payloadTop = this.clampNumber(frame.top, viewport.top, viewport.bottom - effectiveHeight)
+      template.positionX = (payloadLeft - viewport.left) / viewport.width
+      template.positionY = (payloadTop - viewport.top) / viewport.height
+      template.boxWidth = effectiveWidth / viewport.width
+      template.boxHeight = effectiveHeight / viewport.height
+      template.scale = 1
+      template.imageWidth = template.imageWidth * frame.scale
+      template.imageHeight = template.imageHeight * frame.scale
+      template.imageTextGap = template.imageTextGap * frame.scale
+      template.mainTitleFontSize = template.mainTitleFontSize * frame.scale
+      template.subtitleFontSize = template.subtitleFontSize * frame.scale
+      template.boxPadding = template.boxPadding * frame.scale
+      template.boxRadius = template.boxRadius * frame.scale
+      template.rotation = frame.rotation
+      template.previewWidth = viewport.width
+      template.previewHeight = viewport.height
+      template.nativeImagePath = await this.resolveNativeImagePath(template.imagePath)
+      return template
+    },
+    resolveNativeImagePath(path: string): Promise<string> {
+      if (!hasText(path)) {
+        return Promise.resolve('')
+      }
+      return new Promise((resolve) => {
+        uni.getImageInfo({
+          src: path,
+          success: (res) => {
+            resolve(hasText(res.path) ? res.path : path)
+          },
+          fail: () => {
+            resolve(path)
+          }
+        })
+      })
+    },
+    handleWatermarkMoveChange(event: UTSJSONObject | null): void {
+      if (this.isRecording || this.stopPending || this.activeWatermark == null) {
+        return
+      }
+      const detail = this.watermarkMoveEventDetail(event)
+      const moveX = this.pickMoveNumber(detail, 'x')
+      const moveY = this.pickMoveNumber(detail, 'y')
+      if (this.watermarkPinchGesture != null) {
+        this.watermarkMoveActive = false
+        this.watermarkMoveDraft = null
+        this.watermarkDragGesture = null
+        if (moveX !== null && moveY !== null) {
+          const traceFrame = this.watermarkPinchPreviewFrame()
+          this.traceWatermarkGeometry('pinch-native-change', traceFrame != null ? traceFrame : this.watermarkFrame, {
+            nativeX: moveX,
+            nativeY: moveY
+          })
+        }
+        return
+      }
+      if (moveX === null || moveY === null) {
+        return
+      }
+      if (!this.watermarkMoveActive) {
+        return
+      }
+      this.watermarkMoveDraft = {
+        x: moveX,
+        y: moveY
+      }
+      this.watermarkMovePosition = {
+        x: moveX,
+        y: moveY
+      }
+      this.traceWatermarkGeometry('drag-change', this.watermarkFrameFromMovePosition(moveX, moveY, this.watermarkFrame), {
+        moveX,
+        moveY
+      })
+    },
+    watermarkMoveEventDetail(event: UTSJSONObject | null): UTSJSONObject {
+      if (event == null) {
+        return {}
+      }
+      const detail = event['detail']
+      if (detail != null && typeof detail === 'object') {
+        return detail as UTSJSONObject
+      }
+      return event
+    },
+    commitWatermarkMoveDraft(flushNow: boolean): void {
+      if (this.watermarkMoveDraft == null || this.activeWatermark == null || this.isRecording || this.stopPending) {
+        this.watermarkMoveActive = false
+        this.watermarkMoveDraft = null
+        this.watermarkDragGesture = null
+        return
+      }
+      const moveX = this.watermarkMoveDraft.x
+      const moveY = this.watermarkMoveDraft.y
+      const nextFrame = this.watermarkFrameFromMovePosition(moveX, moveY, this.watermarkFrame)
+      this.watermarkMoveActive = false
+      this.watermarkMoveDraft = null
+      this.watermarkDragGesture = null
+      if (Math.abs(nextFrame.left - this.watermarkFrame.left) < 0.5 && Math.abs(nextFrame.top - this.watermarkFrame.top) < 0.5) {
+        return
+      }
+      this.traceWatermarkGeometry('drag-commit', {
+        left: nextFrame.left,
+        top: nextFrame.top,
+        width: this.watermarkFrame.width,
+        height: this.watermarkFrame.height,
+        scale: this.watermarkFrame.scale,
+        rotation: this.watermarkFrame.rotation
+      }, {
+        moveX,
+        moveY
+      })
+      this.updateWatermarkFrame({
+        left: nextFrame.left,
+        top: nextFrame.top,
+        scale: this.watermarkFrame.scale,
+        rotation: this.watermarkFrame.rotation
+      })
+      if (flushNow) {
+        this.flushWatermarkSync(false)
+      }
+    },
+    finishWatermarkMove() {
+      if (this.activeWatermark == null || this.isRecording || this.stopPending) {
+        return
+      }
+      this.commitWatermarkMoveDraft(true)
+    },
+    startWatermarkPinch(touchPair: WatermarkTouchPair): void {
+      const distance = this.pinchDistance(touchPair)
+      if (distance < WATERMARK_PINCH_MIN_DISTANCE) {
+        return
+      }
+      this.commitWatermarkMoveDraft(false)
+      this.clearWatermarkSyncTimer()
+      const frame = this.watermarkVisibleFrame()
+      const size = this.watermarkContentSize(frame.width, frame.height, frame.scale)
+      const startFrame: WatermarkFrame = {
+        left: frame.left,
+        top: frame.top,
+        width: frame.width,
+        height: frame.height,
+        scale: frame.scale,
+        rotation: frame.rotation
+      }
+      this.watermarkMoveActive = false
+      this.watermarkMoveDraft = null
+      this.watermarkDragGesture = null
+      this.watermarkPinchGesture = {
+        startDistance: distance,
+        startScale: startFrame.scale,
+        centerX: frame.left + size.width / 2,
+        centerY: frame.top + size.height / 2,
+        width: startFrame.width,
+        height: startFrame.height,
+        rotation: startFrame.rotation,
+        startFrame,
+        lastScale: startFrame.scale,
+        previewScaleRatio: 1,
+        commitFrame: null,
+        pendingFrame: null,
+        lastUpdateAt: 0,
+        changed: false
+      }
+      this.traceWatermarkGeometry('pinch-start', startFrame, {
+        distance,
+        moveX: this.watermarkMovePositionFromFrame(startFrame).x,
+        moveY: this.watermarkMovePositionFromFrame(startFrame).y
+      })
+    },
+    updateWatermarkPinch(touchPair: WatermarkTouchPair): void {
+      const gesture = this.watermarkPinchGesture
+      if (gesture == null) {
+        return
+      }
+      const nextUpdate = this.buildWatermarkPinchUpdate(touchPair)
+      if (nextUpdate == null) {
+        return
+      }
+      const now = Date.now()
+      if (gesture.lastUpdateAt > 0 && now - gesture.lastUpdateAt < WATERMARK_PINCH_FRAME_INTERVAL_MS) {
+        this.watermarkPinchGesture = {
+          ...gesture,
+          pendingFrame: nextUpdate
+        }
+        return
+      }
+      this.applyWatermarkPinchUpdate(nextUpdate, now)
+    },
+    buildWatermarkPinchUpdate(touchPair: WatermarkTouchPair): WatermarkPinchUpdate | null {
+      const gesture = this.watermarkPinchGesture
+      if (gesture == null) {
+        return null
+      }
+      const distance = this.pinchDistance(touchPair)
+      if (distance < WATERMARK_PINCH_MIN_DISTANCE) {
+        return null
+      }
+      const ratio = distance / gesture.startDistance
+      const rawScale = gesture.startScale * ratio
+      const nextLeft = gesture.centerX - gesture.width * rawScale / 2
+      const nextTop = gesture.centerY - gesture.height * rawScale / 2
+      const maxScale = this.maxWatermarkScale(nextLeft, nextTop, gesture.rotation, gesture.width, gesture.height)
+      const previousScale = typeof gesture.lastScale === 'number' ? gesture.lastScale : gesture.startScale
+      const nextScale = this.limitWatermarkPinchScale(rawScale, previousScale, Math.min(WATERMARK_MIN_SCALE, maxScale), maxScale)
+      const clamped = this.clampWatermarkFrame(
+        gesture.centerX - gesture.width * nextScale / 2,
+        gesture.centerY - gesture.height * nextScale / 2,
+        nextScale,
+        gesture.rotation,
+        gesture.width,
+        gesture.height
+      )
+      return {
+        previewScaleRatio: clamped.scale / gesture.startScale,
+        rawScale: rawScale,
+        appliedScale: nextScale,
+        commitFrame: {
+          left: clamped.left,
+          top: clamped.top,
+          scale: clamped.scale,
+          rotation: clamped.rotation
+        }
+      }
+    },
+    applyWatermarkPinchUpdate(update: WatermarkPinchUpdate | null, updateAt: number): void {
+      const gesture = this.watermarkPinchGesture
+      if (gesture == null || update == null) {
+        return
+      }
+      this.watermarkPinchGesture = {
+        ...gesture,
+        previewScaleRatio: update.previewScaleRatio,
+        commitFrame: update.commitFrame,
+        lastScale: update.commitFrame.scale,
+        pendingFrame: null,
+        lastUpdateAt: updateAt,
+        changed: true
+      }
+      const traceFrame: WatermarkFrame = {
+        left: update.commitFrame.left,
+        top: update.commitFrame.top,
+        width: gesture.startFrame.width,
+        height: gesture.startFrame.height,
+        scale: update.commitFrame.scale,
+        rotation: update.commitFrame.rotation
+      }
+      this.traceWatermarkGeometry('pinch-update', traceFrame, {
+        ratio: update.previewScaleRatio,
+        rawScale: update.rawScale,
+        appliedScale: update.appliedScale
+      })
+    },
+    finishWatermarkPinch() {
+      const activeGesture = this.watermarkPinchGesture
+      if (activeGesture != null && activeGesture.pendingFrame != null) {
+        this.applyWatermarkPinchUpdate(activeGesture.pendingFrame, Date.now())
+      }
+      const gesture = this.watermarkPinchGesture
+      const changed = gesture != null && gesture.changed
+      const commitFrame = gesture != null ? gesture.commitFrame : null
+      this.watermarkMoveActive = false
+      this.watermarkMoveDraft = null
+      this.watermarkDragGesture = null
+      if (changed && commitFrame != null && gesture != null) {
+        const traceFrame: WatermarkFrame = {
+          left: commitFrame.left,
+          top: commitFrame.top,
+          width: gesture.startFrame.width,
+          height: gesture.startFrame.height,
+          scale: commitFrame.scale,
+          rotation: commitFrame.rotation
+        }
+        this.traceWatermarkGeometry('pinch-commit', traceFrame, null)
+        this.updateWatermarkFrame({
+          left: commitFrame.left,
+          top: commitFrame.top,
+          scale: commitFrame.scale,
+          rotation: commitFrame.rotation
+        })
+        this.clearWatermarkPinchGesture()
+        this.flushWatermarkSync(false)
+        return
+      }
+      this.clearWatermarkPinchGesture()
+    },
+    clearWatermarkPinchGesture() {
+      this.watermarkPinchGesture = null
+    },
+    watermarkTouchPair(event: UniTouchEvent | null, includeChangedTouches: boolean): WatermarkTouchPair | null {
+      const groups: Array<Array<UniTouch>> = []
+      if (event != null) {
+        const touches = event.touches
+        const changedTouches = event.changedTouches
+        if (touches != null && touches.length > 0) {
+          groups.push(touches)
+        }
+        if (includeChangedTouches && changedTouches != null && changedTouches.length > 0) {
+          groups.push(changedTouches)
+        }
+      }
+      for (let i = 0; i < groups.length; i += 1) {
+        const group = groups[i]
+        if (group != null && group.length >= 2) {
+          return {
+            first: this.touchPointFromSource(group[0]),
+            second: this.touchPointFromSource(group[1])
+          }
+        }
+      }
+      return null
+    },
+    touchPointFromSource(touch: UniTouch | null): WatermarkPoint {
+      return {
+        x: this.pickTouchCoordinate(touch, ['pageX', 'clientX', 'screenX', 'x']),
+        y: this.pickTouchCoordinate(touch, ['pageY', 'clientY', 'screenY', 'y'])
+      }
+    },
+    pickTouchCoordinate(touch: UniTouch | null, names: Array<string>): number {
+      if (touch == null) {
+        return 0
+      }
+      for (let i = 0; i < names.length; i += 1) {
+        const name = names[i]
+        if (name === 'pageX' || name === 'x') {
+          return touch.pageX
+        }
+        if (name === 'clientX') {
+          return touch.clientX
+        }
+        if (name === 'screenX') {
+          return touch.screenX
+        }
+        if (name === 'pageY' || name === 'y') {
+          return touch.pageY
+        }
+        if (name === 'clientY') {
+          return touch.clientY
+        }
+        if (name === 'screenY') {
+          return touch.screenY
+        }
+      }
+      return 0
+    },
+    pinchDistance(touchPair: WatermarkTouchPair): number {
+      const x = touchPair.first.x - touchPair.second.x
+      const y = touchPair.first.y - touchPair.second.y
+      return Math.sqrt(x * x + y * y)
+    },
+    pickMoveNumber(source: any | null, name: string): number | null {
+      const sourceObject = source != null ? source as UTSJSONObject : null
+      const value = sourceObject != null ? sourceObject[name] : null
+      if (typeof value === 'number') {
+        return value
+      }
+      if (typeof value === 'string' && value.length > 0) {
+        const numberValue = parseFloat(value)
+        if (!isNaN(numberValue)) {
+          return numberValue
+        }
+      }
+      return null
+    },
+    watermarkVisibleFrame(): WatermarkFrame {
+      return this.watermarkFrame
+    },
+    watermarkInteractionFrame(): WatermarkFrame {
+      const pinchFrame = this.watermarkPinchPreviewFrame()
+      if (pinchFrame != null) {
+        return pinchFrame
+      }
+      if (this.watermarkMoveDraft != null && this.activeWatermark != null) {
+        const movedFrame = this.watermarkFrameFromMovePosition(this.watermarkMoveDraft.x, this.watermarkMoveDraft.y, this.watermarkFrame)
+        return {
+          left: movedFrame.left,
+          top: movedFrame.top,
+          width: this.watermarkFrame.width,
+          height: this.watermarkFrame.height,
+          scale: this.watermarkFrame.scale,
+          rotation: this.watermarkFrame.rotation
+        }
+      }
+      return this.watermarkFrame
+    },
+    traceWatermarkGeometry(stage: string, frame: any | null, extra: WatermarkTraceExtra | null): void {
+      if (!WATERMARK_TRACE_LOG || frame == null) {
+        return
+      }
+      const source = frame as UTSJSONObject
+      const rawLeft = source['left']
+      const rawTop = source['top']
+      const rawWidth = source['width']
+      const rawHeight = source['height']
+      const rawScale = source['scale']
+      const rawRotation = source['rotation']
+      const traceFrame: WatermarkFrame = {
+        left: typeof rawLeft === 'number' ? rawLeft : this.watermarkFrame.left,
+        top: typeof rawTop === 'number' ? rawTop : this.watermarkFrame.top,
+        width: typeof rawWidth === 'number' ? rawWidth : this.watermarkFrame.width,
+        height: typeof rawHeight === 'number' ? rawHeight : this.watermarkFrame.height,
+        scale: typeof rawScale === 'number' ? rawScale : this.watermarkFrame.scale,
+        rotation: typeof rawRotation === 'number' ? rawRotation : this.watermarkFrame.rotation
+      }
+      const frameMove = this.watermarkMovePositionFromFrame(traceFrame)
+      const rawMoveX = extra != null ? extra['moveX'] : null
+      const rawMoveY = extra != null ? extra['moveY'] : null
+      const rawDistance = extra != null ? extra['distance'] : null
+      const rawRatio = extra != null ? extra['ratio'] : null
+      const rawTraceScale = extra != null ? extra['rawScale'] : null
+      const rawAppliedScale = extra != null ? extra['appliedScale'] : null
+      const rawNativeX = extra != null ? extra['nativeX'] : null
+      const rawNativeY = extra != null ? extra['nativeY'] : null
+      const moveXValue = rawMoveX as number | null
+      const moveYValue = rawMoveY as number | null
+      const distanceValue = rawDistance as number | null
+      const ratioValue = rawRatio as number | null
+      const traceScaleValue = rawTraceScale as number | null
+      const appliedScaleValue = rawAppliedScale as number | null
+      const nativeXValue = rawNativeX as number | null
+      const nativeYValue = rawNativeY as number | null
+      const moveXNumber: number = moveXValue != null ? moveXValue : 0
+      const moveYNumber: number = moveYValue != null ? moveYValue : 0
+      const distanceNumber: number = distanceValue != null ? distanceValue : 0
+      const ratioNumber: number = ratioValue != null ? ratioValue : 0
+      const traceScaleNumber: number = traceScaleValue != null ? traceScaleValue : 0
+      const appliedScaleNumber: number = appliedScaleValue != null ? appliedScaleValue : 0
+      const nativeXNumber: number = nativeXValue != null ? nativeXValue : 0
+      const nativeYNumber: number = nativeYValue != null ? nativeYValue : 0
+      const renderX: number = moveXValue != null ? moveXValue : this.watermarkMoveX
+      const renderY: number = moveYValue != null ? moveYValue : this.watermarkMoveY
+      const metrics = this.watermarkBoxMetrics(traceFrame.width, traceFrame.height, traceFrame.scale, traceFrame.rotation)
+      const layerBounds = this.watermarkLayerBounds()
+      const rootWidth = this.watermarkPinchActive()
+        ? layerBounds.right - layerBounds.left
+        : metrics.containerWidth
+      const rootHeight = this.watermarkPinchActive()
+        ? layerBounds.bottom - layerBounds.top
+        : metrics.containerHeight
+      const innerLeft = this.watermarkPinchActive()
+        ? traceFrame.left + metrics.contentWidth / 2 - layerBounds.left - metrics.boxWidth / 2
+        : metrics.transformLeft
+      const innerTop = this.watermarkPinchActive()
+        ? traceFrame.top + metrics.contentHeight / 2 - layerBounds.top - metrics.boxHeight / 2
+        : metrics.transformTop
+      const parts: Array<string> = [
+        '[WATERMARK_TRACE]',
+        stage,
+        'rootX=' + this.formatTraceNumber(renderX),
+        'rootY=' + this.formatTraceNumber(renderY),
+        'rootW=' + this.formatTraceNumber(rootWidth),
+        'rootH=' + this.formatTraceNumber(rootHeight),
+        'frameX=' + this.formatTraceNumber(frameMove.x),
+        'frameY=' + this.formatTraceNumber(frameMove.y),
+        'frameLeft=' + this.formatTraceNumber(traceFrame.left),
+        'frameTop=' + this.formatTraceNumber(traceFrame.top),
+        'frameW=' + this.formatTraceNumber(traceFrame.width),
+        'frameH=' + this.formatTraceNumber(traceFrame.height),
+        'scale=' + this.formatTraceNumber(traceFrame.scale),
+        'rotation=' + this.formatTraceNumber(traceFrame.rotation),
+        'contentW=' + this.formatTraceNumber(metrics.contentWidth),
+        'contentH=' + this.formatTraceNumber(metrics.contentHeight),
+        'boxW=' + this.formatTraceNumber(metrics.boxWidth),
+        'boxH=' + this.formatTraceNumber(metrics.boxHeight),
+        'containerW=' + this.formatTraceNumber(metrics.containerWidth),
+        'containerH=' + this.formatTraceNumber(metrics.containerHeight),
+        'innerX=' + this.formatTraceNumber(innerLeft),
+        'innerY=' + this.formatTraceNumber(innerTop),
+        'innerW=' + this.formatTraceNumber(metrics.boxWidth),
+        'innerH=' + this.formatTraceNumber(metrics.boxHeight)
+      ]
+      if (extra != null) {
+        if (moveXValue != null) {
+          parts.push('moveX=' + this.formatTraceNumber(moveXNumber))
+        }
+        if (moveYValue != null) {
+          parts.push('moveY=' + this.formatTraceNumber(moveYNumber))
+        }
+        if (distanceValue != null) {
+          parts.push('distance=' + this.formatTraceNumber(distanceNumber))
+        }
+        if (ratioValue != null) {
+          parts.push('ratio=' + this.formatTraceNumber(ratioNumber))
+        }
+        if (traceScaleValue != null) {
+          parts.push('rawScale=' + this.formatTraceNumber(traceScaleNumber))
+        }
+        if (appliedScaleValue != null) {
+          parts.push('appliedScale=' + this.formatTraceNumber(appliedScaleNumber))
+        }
+        if (nativeXValue != null) {
+          parts.push('nativeX=' + this.formatTraceNumber(nativeXNumber))
+        }
+        if (nativeYValue != null) {
+          parts.push('nativeY=' + this.formatTraceNumber(nativeYNumber))
+        }
+      }
+      this.writeWatermarkTrace(parts.join(' '))
+    },
+    writeWatermarkTrace(message: string): void {
+      console.log(message)
+    },
+    formatTraceNumber(value: number): number {
+      return Math.round(value * 1000) / 1000
+    },
+    watermarkPinchActive() {
+      return this.watermarkPinchGesture !== null
+    },
+    watermarkLayoutFrame(): WatermarkFrame {
+      const pinchFrame = this.watermarkPinchPreviewFrame()
+      if (pinchFrame != null) {
+        return pinchFrame
+      }
+      return this.watermarkVisibleFrame()
+    },
+    watermarkPinchPreviewFrame(): WatermarkFrame | null {
+      const gesture = this.watermarkPinchGesture
+      if (gesture == null || gesture.startFrame == null) {
+        return null
+      }
+      if (gesture.commitFrame == null) {
+        return gesture.startFrame
+      }
+      return {
+        left: gesture.commitFrame.left,
+        top: gesture.commitFrame.top,
+        width: gesture.startFrame.width,
+        height: gesture.startFrame.height,
+        scale: gesture.commitFrame.scale,
+        rotation: gesture.commitFrame.rotation
+      }
+    },
+    watermarkPinchScaleRatio() {
+      if (this.watermarkPinchGesture != null && this.watermarkPinchGesture.commitFrame != null) {
+        return 1
+      }
+      if (this.watermarkPinchGesture != null && typeof this.watermarkPinchGesture.previewScaleRatio === 'number') {
+        return this.watermarkPinchGesture.previewScaleRatio
+      }
+      return 1
+    },
+    watermarkFrameFromMovePosition(moveX: number, moveY: number, frame: WatermarkFrame | null): WatermarkPosition {
+      const baseFrame = frame != null ? frame : this.watermarkFrame
+      const metrics = this.watermarkBoxMetrics(baseFrame.width, baseFrame.height, baseFrame.scale, baseFrame.rotation)
+      const layerBounds = this.watermarkLayerBounds()
+      const nextCenterX = layerBounds.left + moveX + metrics.containerWidth / 2
+      const nextCenterY = layerBounds.top + moveY + metrics.containerHeight / 2
+      return {
+        left: nextCenterX - metrics.contentWidth / 2,
+        top: nextCenterY - metrics.contentHeight / 2
+      }
+    },
+    touchPoint(event: UniTouchEvent | null): WatermarkPoint {
+      const touch = this.pickTouchSource(event)
+      return {
+        x: this.pickTouchCoordinate(touch, ['pageX', 'clientX', 'screenX', 'x']),
+        y: this.pickTouchCoordinate(touch, ['pageY', 'clientY', 'screenY', 'y'])
+      }
+    },
+    pickTouchSource(event: UniTouchEvent | null): UniTouch | null {
+      if (event == null) {
+        return null
+      }
+      const touches = event.touches
+      if (touches != null && touches.length > 0) {
+        return touches[0]
+      }
+      const changedTouches = event.changedTouches
+      if (changedTouches != null && changedTouches.length > 0) {
+        return changedTouches[0]
+      }
+      return null
+    },
+    cameraViewportBounds(): CameraViewportBounds {
+      const screenWidth = this.screenWidth as number
+      const previewHeight = this.previewHeight as number
+      return resolveCameraViewportBounds(screenWidth, previewHeight)
+    },
+    cameraBottomPanelBounds(): CameraPanelBounds {
+      const screenWidth = this.screenWidth as number
+      const previewHeight = this.previewHeight as number
+      return resolveCameraBottomPanelBounds(screenWidth, previewHeight)
+    },
+    watermarkEditBounds(): CameraViewportBounds {
+      return this.cameraViewportBounds()
+    },
+    watermarkLayerBounds(): WatermarkBounds {
+      const editBounds = this.watermarkEditBounds()
+      return {
+        left: editBounds.left - WATERMARK_HANDLE_PAD,
+        top: editBounds.top - WATERMARK_HANDLE_PAD,
+        right: editBounds.right + WATERMARK_HANDLE_PAD,
+        bottom: editBounds.bottom + WATERMARK_HANDLE_PAD
+      }
+    },
+    watermarkContentSize(width: number, height: number, scale: number): WatermarkSize {
+      return {
+        width: Math.max(1, width * scale),
+        height: Math.max(1, height * scale)
+      }
+    },
+    watermarkTemplateMinimumFrameSize(template: WatermarkTemplate): WatermarkSize {
+      const padding = Math.max(0, safeNumber(template.boxPadding, 0))
+      const imageWidth = hasText(template.imagePath) ? Math.max(0, safeNumber(template.imageWidth, 0)) : 0
+      const imageHeight = hasText(template.imagePath) ? Math.max(0, safeNumber(template.imageHeight, 0)) : 0
+      const textWidth = hasText(template.mainTitleText) || hasText(template.subtitleText) ? 1 : 0
+      const imageTextGap = imageWidth > 0 && textWidth > 0 ? Math.max(0, safeNumber(template.imageTextGap, 0)) : 0
+      return {
+        width: imageWidth + imageTextGap + textWidth + padding * 2,
+        height: imageHeight + padding * 2
+      }
+    },
+    watermarkTemplateFrameSize(template: WatermarkTemplate, viewport: CameraViewportBounds): WatermarkSize {
+      const minimumFrameSize = this.watermarkTemplateMinimumFrameSize(template)
+      return {
+        width: Math.max(
+          WATERMARK_DEFAULT_MIN_WIDTH,
+          minimumFrameSize.width,
+          Math.round(viewport.width * safeNumber(template.boxWidth, 0.58))
+        ),
+        height: Math.max(
+          WATERMARK_DEFAULT_MIN_HEIGHT,
+          minimumFrameSize.height,
+          Math.round(viewport.height * safeNumber(template.boxHeight, 0.14))
+        )
+      }
+    },
+    watermarkBoxMetrics(width: number, height: number, scale: number, rotation: number): WatermarkMetrics {
+      const contentSize = this.watermarkContentSize(width, height, scale)
+      const boxWidth = contentSize.width + WATERMARK_HANDLE_PAD * 2
+      const boxHeight = contentSize.height + WATERMARK_HANDLE_PAD * 2
+      const bounds = this.watermarkRotatedBounds(boxWidth, boxHeight, rotation)
+      const containerWidth = Math.max(1, bounds.width, boxWidth)
+      const containerHeight = Math.max(1, bounds.height, boxHeight)
+      return {
+        contentWidth: contentSize.width,
+        contentHeight: contentSize.height,
+        boxWidth,
+        boxHeight,
+        containerWidth,
+        containerHeight,
+        transformLeft: (containerWidth - boxWidth) / 2,
+        transformTop: (containerHeight - boxHeight) / 2
+      }
+    },
+    watermarkRotatedBounds(width: number, height: number, rotation: number): WatermarkSize {
+      const radians = rotation * Math.PI / 180
+      const cos = Math.abs(Math.cos(radians))
+      const sin = Math.abs(Math.sin(radians))
+      return {
+        width: width * cos + height * sin,
+        height: width * sin + height * cos
+      }
+    },
+    clampCenterBySize(center: number, minEdge: number, maxEdge: number, size: number): number {
+      if (maxEdge <= minEdge || size >= maxEdge - minEdge) {
+        return (minEdge + maxEdge) / 2
+      }
+      return this.clampNumber(center, minEdge + size / 2, maxEdge - size / 2)
+    },
+    limitWatermarkPinchScale(rawScale: number, previousScale: number, minScale: number, maxScale: number): number {
+      const targetScale = this.clampNumber(rawScale, minScale, maxScale)
+      if (typeof previousScale !== 'number') {
+        return targetScale
+      }
+      const delta = targetScale - previousScale
+      if (Math.abs(delta) <= WATERMARK_PINCH_MAX_SCALE_STEP) {
+        return targetScale
+      }
+      const smoothedDelta = delta * WATERMARK_PINCH_SMOOTHING
+      const limitedDelta = this.clampNumber(smoothedDelta, -WATERMARK_PINCH_MAX_SCALE_STEP, WATERMARK_PINCH_MAX_SCALE_STEP)
+      return this.clampNumber(previousScale + limitedDelta, minScale, maxScale)
+    },
+    clampWatermarkFrame(left: number, top: number, scale: number, rotation: number, width: number | null = null, height: number | null = null): WatermarkClampResult {
+      const frameWidth: number = width != null ? width : this.watermarkFrame.width
+      const frameHeight: number = height != null ? height : this.watermarkFrame.height
+      const nextRotation = normalizeRotation(rotation)
+      const maxScale = this.maxWatermarkScale(left, top, nextRotation, frameWidth, frameHeight)
+      const nextScale = this.clampNumber(scale, Math.min(WATERMARK_MIN_SCALE, maxScale), maxScale)
+      const size = this.watermarkContentSize(frameWidth, frameHeight, nextScale)
+      const metrics = this.watermarkBoxMetrics(frameWidth, frameHeight, nextScale, nextRotation)
+      const editBounds = this.watermarkEditBounds()
+      const layerBounds = this.watermarkLayerBounds()
+      const centerX = left + size.width / 2
+      const centerY = top + size.height / 2
+      const clampedCenterX = this.clampCenterBySize(centerX, layerBounds.left, layerBounds.right, metrics.containerWidth)
+      const clampedCenterY = this.clampCenterBySize(centerY, layerBounds.top, layerBounds.bottom, metrics.containerHeight)
+      const contentLeft = this.clampNumber(clampedCenterX - size.width / 2, editBounds.left, editBounds.right - size.width)
+      const contentTop = this.clampNumber(clampedCenterY - size.height / 2, editBounds.top, editBounds.bottom - size.height)
+      return {
+        left: contentLeft,
+        top: contentTop,
+        scale: nextScale,
+        rotation: nextRotation
+      }
+    },
+    watermarkCenter(): WatermarkPoint {
+      const size = this.watermarkContentSize(this.watermarkFrame.width, this.watermarkFrame.height, this.watermarkFrame.scale)
+      return {
+        x: this.watermarkFrame.left + size.width / 2,
+        y: this.watermarkFrame.top + size.height / 2
+      }
+    },
+    watermarkMovePositionFromFrame(frame: WatermarkFrame | null = null): WatermarkPoint {
+      const sourceFrame = frame != null ? frame : this.watermarkFrame
+      const metrics = this.watermarkBoxMetrics(sourceFrame.width, sourceFrame.height, sourceFrame.scale, sourceFrame.rotation)
+      const layerBounds = this.watermarkLayerBounds()
+      const size = this.watermarkContentSize(sourceFrame.width, sourceFrame.height, sourceFrame.scale)
+      const center: WatermarkPoint = {
+        x: sourceFrame.left + size.width / 2,
+        y: sourceFrame.top + size.height / 2
+      }
+      return {
+        x: roundWatermarkPx(center.x - metrics.containerWidth / 2 - layerBounds.left),
+        y: roundWatermarkPx(center.y - metrics.containerHeight / 2 - layerBounds.top)
+      }
+    },
+    maxWatermarkScale(left: number, top: number, rotation: number, width: number, height: number): number {
+      const frameWidth: number = Math.max(1, width)
+      const frameHeight: number = Math.max(1, height)
+      const targetRotation = typeof rotation === 'number' ? rotation : this.watermarkFrame.rotation
+      const radians = targetRotation * Math.PI / 180
+      const cos = Math.abs(Math.cos(radians))
+      const sin = Math.abs(Math.sin(radians))
+      const editBounds = this.watermarkEditBounds()
+      const layerBounds = this.watermarkLayerBounds()
+      const availableWidth = Math.max(1, layerBounds.right - layerBounds.left)
+      const availableHeight = Math.max(1, layerBounds.bottom - layerBounds.top)
+      const rotatedWidthFactor = Math.max(1, frameWidth * cos + frameHeight * sin)
+      const rotatedHeightFactor = Math.max(1, frameWidth * sin + frameHeight * cos)
+      const handlePadding = WATERMARK_HANDLE_PAD * 2
+      const rotatedHandlePadding = handlePadding * (cos + sin)
+      const maxWidthScale = (availableWidth - rotatedHandlePadding) / rotatedWidthFactor
+      const maxHeightScale = (availableHeight - rotatedHandlePadding) / rotatedHeightFactor
+      const contentMaxWidthScale = Math.max(1, editBounds.right - editBounds.left) / frameWidth
+      const contentMaxHeightScale = Math.max(1, editBounds.bottom - editBounds.top) / frameHeight
+      return Math.max(WATERMARK_ABSOLUTE_MIN_SCALE, Math.min(WATERMARK_MAX_SCALE, maxWidthScale, maxHeightScale, contentMaxWidthScale, contentMaxHeightScale))
+    },
+    clampNumber(value: number, min: number, max: number): number {
+      if (max < min) {
+        return min
+      }
+      return Math.min(max, Math.max(min, value))
+    },
+    watermarkTemplateCardClass(template: WatermarkTemplate): Array<string> {
+      const classes = ['watermarkTemplateCard']
+      if (this.activeWatermark != null && this.activeWatermark.templateId === template.templateId) {
+        classes.push('watermarkTemplateCardActive')
+      }
+      return classes
+    },
+    templateTypeLabel(type: string): string {
+      if (type === 'image') {
+        return '图片'
+      }
+      if (type === 'mixed') {
+        return '图文'
+      }
+      return '文字'
+    },
+    goBack() {
+      if (this.isRecording || this.stopPending || this.recordStartPending) {
+        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : (this.recordStartPending ? '录像启动中' : '请先停止录像')
+        return
+      }
+      uni.navigateBack()
+    },
+    setMode(mode: string): void {
+      if (this.isRecording || this.stopPending || this.recordStartPending) {
+        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : (this.recordStartPending ? '录像启动中不能切换模式' : '录像中不能切换模式')
+        return
+      }
+      if (mode === this.mode) {
+        return
+      }
+      this.triggerHaptic('light')
+      this.recordStartAfterPermission = false
+      this.clearRecordPermissionRetry()
+      this.clearRecordStartRetry()
+      this.mode = mode
+    },
+    async toggleCameraSound() {
+      if (this.cameraSoundPending) {
+        return
+      }
+      this.cameraSoundPending = true
+      this.triggerHaptic('light')
+      const nextEnabled = !this.cameraSoundEnabled
+      this.cameraSoundEnabled = nextEnabled
+      const nativeCamera = this.resolveNativeCamera()
+      try {
+        if (nativeCamera != null) {
+          const nativeResponse = await nativeCamera.setCameraSoundEnabled(nextEnabled)
+          if (!this.nativeReturnIsEmpty(nativeResponse)) {
+            const result = this.normalizeNativeResult(nativeResponse, '提示音设置失败')
+            if (!result.success) {
+              this.cameraSoundEnabled = !nextEnabled
+              this.nativeStatus = safeString(result.errorMessage, '提示音设置失败')
+              return
+            }
+            const cameraSoundEnabled = result.data != null ? result.data['cameraSoundEnabled'] : null
+            if (typeof cameraSoundEnabled === 'boolean') {
+              this.cameraSoundEnabled = cameraSoundEnabled
+            }
+          }
+        }
+        const statusMessage = this.cameraSoundEnabled ? '提示音已开启' : '提示音已关闭'
+        this.nativeStatus = statusMessage
+        this.showCameraSoundToast(statusMessage)
+      } catch (error) {
+        this.cameraSoundEnabled = !nextEnabled
+        this.nativeStatus = safeErrorMessage(error, '提示音设置失败')
+      } finally {
+        this.cameraSoundPending = false
+      }
+    },
+    showCameraSoundToast(message: string): void {
+      try {
+        if (typeof uni.showToast === 'function') {
+          uni.showToast({
+            title: message,
+            icon: 'none',
+            duration: 900
+          })
+        }
+      } catch (error) {
+      }
+    },
+    showCameraControlToast(message: string): void {
+      try {
+        if (typeof uni.showToast === 'function') {
+          uni.showToast({
+            title: message,
+            icon: 'none',
+            duration: 900
+          })
+        }
+      } catch (error) {
+      }
+    },
+    async cycleFlashMode() {
+      if (this.flashPending) {
+        return
+      }
+      const tappedAt = Date.now()
+      if (tappedAt - this.flashTapAt < 280) {
+        return
+      }
+      this.flashTapAt = tappedAt
+      if (this.isRecording || this.stopPending) {
+        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : '录像中不能切换闪光灯'
+        return
+      }
+      this.triggerHaptic('light')
+      const currentFlashMode = this.flashMode
+      const cycleBaseMode = this.flashCycleBaseMode(currentFlashMode, this.flashCycleMode)
+      const nextMode = this.nextFlashMode(cycleBaseMode)
+      this.flashPending = true
+      this.nativeStatus = '闪光灯切换中'
+      this.flashCycleMode = nextMode
+      this.flashLastRequestedMode = nextMode
+      this.flashMode = nextMode
+      try {
+        const applied = await this.syncFlashMode(nextMode, false)
+        if (!applied) {
+          this.flashMode = currentFlashMode
+          this.flashCycleMode = currentFlashMode
+          this.flashLastRequestedMode = currentFlashMode
+        }
+        this.showCameraControlToast(this.nativeStatus)
+      } finally {
+        this.flashPending = false
+      }
+    },
+    async syncFlashMode(mode: string, silent: boolean): Promise<boolean> {
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        this.nativeStatus = '原生闪光灯接口不可用'
+        return false
+      }
+      try {
+        this.flashEventHandled = false
+        this.flashEventApplied = true
+        this.flashRequestSilent = silent
+        const nativeResponse = await nativeCamera.setFlashMode(mode)
+        if (typeof nativeResponse === 'number' || nativeResponse == null) {
+          const eventHandled = this.flashEventHandled
+          const eventApplied = this.flashEventApplied
+          this.flashRequestSilent = false
+          if (eventHandled) {
+            return eventApplied
+          }
+          if (!silent) {
+            this.nativeStatus = this.flashModeLabel(mode)
+          }
+          return true
+        }
+        const result = this.normalizeNativeResult(nativeResponse, '闪光灯设置失败')
+        this.flashRequestSilent = false
+        if (!result.success) {
+          this.nativeStatus = safeString(result.errorMessage, '闪光灯设置失败')
+          return false
+        }
+        if (result.data != null && isBooleanFalse(result.data['applied']) && mode != 'off') {
+          this.nativeStatus = safeString(result.data['message'], '当前设备不支持该闪光灯模式')
+          return false
+        }
+        if (!silent) {
+          const message = result.data != null ? safeString(result.data['message'], '') : ''
+          this.nativeStatus = hasText(message) ? message : this.flashModeLabel(mode)
+        }
+        return true
+      } catch (error) {
+        this.flashRequestSilent = false
+        this.nativeStatus = safeErrorMessage(error, '闪光灯设置失败')
+        return false
+      }
+    },
+    normalizeFlashModeForCycle(mode: string, fallbackMode: string): string {
+      if (mode == 'off' || mode == 'on' || mode == 'auto') {
+        return mode
+      }
+      if (fallbackMode == 'off' || fallbackMode == 'on' || fallbackMode == 'auto') {
+        return fallbackMode
+      }
+      return 'off'
+    },
+    flashCycleBaseMode(visibleMode: string, cycleMode: string): string {
+      const normalizedVisibleMode = this.normalizeFlashModeForCycle(visibleMode, 'off')
+      const normalizedCycleMode = this.normalizeFlashModeForCycle(cycleMode, normalizedVisibleMode)
+      if (normalizedVisibleMode == 'off' && normalizedCycleMode == 'auto') {
+        return normalizedVisibleMode
+      }
+      return normalizedCycleMode
+    },
+    nextFlashMode(currentFlashMode: string): string {
+      const normalizedMode = this.normalizeFlashModeForCycle(currentFlashMode, 'off')
+      return normalizedMode == 'off' ? 'on' : (normalizedMode == 'on' ? 'auto' : 'off')
+    },
+    flashModeLabel(mode: string): string {
+      if (mode == 'on') {
+        return '闪光灯：开'
+      }
+      if (mode == 'auto') {
+        return '闪光灯：自动'
+      }
+      return '闪光灯：关'
+    },
+    async setZoomMode(mode: string): Promise<void> {
+      const targetMode = normalizeUiZoomMode(mode)
+      if (this.stopPending) {
+        this.nativeStatus = '请等待视频保存完成'
+        return
+      }
+      this.triggerHaptic('light')
+      if (this.zoomPending) {
+        this.zoomQueuedMode = targetMode
+        this.zoomLatestRequestMode = targetMode
+        return
+      }
+      this.zoomRequestSeq = this.zoomRequestSeq + 1
+      const requestId = this.zoomRequestSeq
+      this.zoomLatestRequestMode = targetMode
+      this.zoomQueuedMode = ''
+      this.zoomPending = true
+      try {
+        await this.syncZoomMode(targetMode, false, requestId)
+      } finally {
+        this.zoomPending = false
+      }
+      const queuedMode = this.zoomQueuedMode
+      this.zoomQueuedMode = ''
+      if (hasText(queuedMode)) {
+        await this.setZoomMode(queuedMode)
+      }
+    },
+    async syncZoomMode(mode: string, silent: boolean, requestId: number = 0): Promise<boolean> {
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        this.zoomSelectedMode = this.zoomMode
+        if (!silent) {
+          this.showZoomToast('原生焦段接口不可用')
+        }
+        return false
+      }
+      try {
+        this.zoomEventHandled = false
+        this.zoomEventApplied = true
+        this.zoomLatestRequestMode = mode
+        this.zoomRequestSilent = silent
+        const nativeResponse = await nativeCamera.setZoomMode(mode)
+        if ((requestId > 0 && requestId !== this.zoomRequestSeq) || mode != this.zoomLatestRequestMode) {
+          return true
+        }
+        if (typeof nativeResponse === 'number' || nativeResponse == null) {
+          const eventHandled = this.zoomEventHandled
+          const eventApplied = this.zoomEventApplied
+          this.zoomRequestSilent = false
+          if (eventHandled) {
+            return eventApplied
+          }
+          this.zoomMode = normalizeUiZoomMode(mode)
+          this.zoomSelectedMode = normalizeUiZoomMode(mode)
+          return true
+        }
+        const result = this.normalizeNativeResult(nativeResponse, '焦段切换失败')
+        this.zoomRequestSilent = false
+        if (result.data != null) {
+          this.updateAvailableZoomModes(result.data['availableZoomModes'])
+        }
+        if (!result.success) {
+          this.zoomSelectedMode = this.zoomMode
+          if (!silent) {
+            this.showZoomToast(safeString(result.errorMessage, '焦段切换失败'))
+          }
+          return false
+        }
+        if (result.data != null && isBooleanFalse(result.data['applied'])) {
+          const resultZoomMode = safeString(result.data['zoomMode'], '')
+          this.zoomMode = hasText(resultZoomMode) ? normalizeUiZoomMode(resultZoomMode) : '1x'
+          this.zoomSelectedMode = this.zoomMode
+          if (!silent) {
+            this.showZoomToast(safeString(result.data['message'], this.unsupportedZoomModeLabel(mode)))
+          }
+          return false
+        }
+        if (this.zoomEventHandled) {
+          return this.zoomEventApplied
+        }
+        const zoomMode = result.data != null ? safeString(result.data['zoomMode'], '') : ''
+        const appliedZoomMode = hasText(zoomMode) ? normalizeUiZoomMode(zoomMode) : normalizeUiZoomMode(mode)
+        this.zoomMode = appliedZoomMode
+        this.zoomSelectedMode = appliedZoomMode
+        this.zoomLatestRequestMode = appliedZoomMode
+        return true
+      } catch (error) {
+        this.zoomRequestSilent = false
+        this.zoomSelectedMode = this.zoomMode
+        if (!silent) {
+          this.showZoomToast(safeErrorMessage(error, '焦段切换失败'))
+        }
+        return false
+      }
+    },
+    showZoomToast(message: string): void {
+      try {
+        if (typeof uni.showToast === 'function') {
+          uni.showToast({
+            title: message,
+            icon: 'none',
+            duration: 900
+          })
+        }
+      } catch (error) {
+      }
+    },
+    zoomModeLabel(mode: string): string {
+      if (mode == 'wide') {
+        return '焦段：广角'
+      }
+      if (mode == '2x') {
+        return '焦段：2x'
+      }
+      return '焦段：1x'
+    },
+    unsupportedZoomModeLabel(mode: string): string {
+      if (mode == 'wide') {
+        return '当前设备未暴露广角镜头'
+      }
+      if (mode == '2x') {
+        return '当前设备不支持 2x 焦段'
+      }
+      return '当前设备不支持该焦段'
+    },
+    updateAvailableZoomModes(value: any | null): void {
+      if (value == null) {
+        return
+      }
+      this.availableZoomModes = normalizeAvailableZoomModes(value)
+    },
+    async switchCameraFacing(): Promise<void> {
+      if (this.cameraSwitchPending) {
+        return
+      }
+      const tappedAt = Date.now()
+      if (tappedAt - this.cameraSwitchTapAt < 280) {
+        return
+      }
+      this.cameraSwitchTapAt = tappedAt
+      if (this.isRecording || this.stopPending || this.recordStartPending) {
+        this.nativeStatus = this.stopPending ? '请等待视频保存完成' : '录像中不能切换摄像头'
+        return
+      }
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        this.nativeStatus = '原生摄像头切换接口不可用'
+        return
+      }
+      this.triggerHaptic('light')
+      this.cameraSwitchPending = true
+      this.nativeStatus = '摄像头切换中'
+      try {
+        const nativeResponse = await nativeCamera.switchCamera()
+        const result = this.normalizeNativeResult(nativeResponse, '摄像头切换失败')
+        if (!result.success) {
+          this.nativeStatus = safeString(result.errorMessage, '摄像头切换失败')
+          this.showCameraControlToast(this.nativeStatus)
+          return
+        }
+        if (result.data != null && isBooleanFalse(result.data['applied'])) {
+          this.nativeStatus = safeString(result.data['message'], '当前设备不支持切换摄像头')
+          this.showCameraControlToast(this.nativeStatus)
+          return
+        }
+        this.applyNativeCameraState(result.data)
+        const message = result.data != null ? safeString(result.data['message'], '') : ''
+        this.nativeStatus = hasText(message) ? message : this.cameraFacingLabel(this.cameraFacing)
+        this.showCameraControlToast(this.nativeStatus)
+      } catch (error) {
+        this.nativeStatus = safeErrorMessage(error, '摄像头切换失败')
+        this.showCameraControlToast(this.nativeStatus)
+      } finally {
+        this.cameraSwitchPending = false
+      }
+    },
+    cameraFacingLabel(facing: string): string {
+      return facing === 'front' ? '前置摄像头' : '后置摄像头'
+    },
+    async pressShutter(): Promise<void> {
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        this.nativeStatus = '原生相机组件不可用'
+        return
+      }
+
+      if (this.mode === 'photo') {
+        this.triggerHaptic('light')
+        if (this.activeWatermark != null && !await this.flushWatermarkSync(true)) {
+          return
+        }
+        const result = await this.normalizeNativeCommandReturn(await nativeCamera.takePhoto(), '拍照失败', '拍照中', ['10', '11', '13', '14'])
+        if (result.success) {
+          const message = result.data != null ? safeString(result.data['message'], '') : ''
+          this.nativeStatus = hasText(message) ? message : '拍照中'
+        } else {
+          this.nativeStatus = safeString(result.errorMessage, '拍照失败')
+        }
+        return
+      }
+
+      if (!this.isRecording) {
+        if (this.recordStartPending) {
+          return
+        }
+        if (this.stopPending) {
+          return
+        }
+        this.triggerHaptic('medium')
+        if (!await this.prepareRecordPermissions()) {
+          this.recordStartAfterPermission = true
+          this.scheduleRecordPermissionRetry()
+          return
+        }
+        this.recordStartAfterPermission = false
+        this.clearRecordPermissionRetry()
+        if (this.activeWatermark != null && !await this.flushWatermarkSync(true)) {
+          return
+        }
+        this.recordStartPending = true
+        this.startRecordPendingTimeout()
+        const recordResponse = await nativeCamera.startRecord({ fps: this.targetFps })
+        const result = await this.normalizeNativeCommandReturn(recordResponse, '录像开始失败', '录像启动中', ['10', '11', '14'])
+        if (result.success) {
+          if (!this.isRecording && !this.nativeReturnIsEmpty(recordResponse)) {
+            this.startRecordingClock()
+            this.isRecording = true
+            this.clearRecordStartPendingTimer()
+            this.recordStartPending = false
+          }
+          this.nativeStatus = this.nativeReturnIsEmpty(recordResponse) ? '录像启动中' : '录像中'
+        } else {
+          this.stopRecordingClock()
+          this.clearRecordStartPendingTimer()
+          this.recordStartPending = false
+          this.nativeStatus = safeString(result.errorMessage, '录像开始失败')
+        }
+        return
+      }
+
+      this.triggerHaptic('medium')
+      this.isRecording = false
+      this.stopPending = true
+      this.nativeStatus = '正在保存视频'
+      this.stopRecordingClock()
+      this.startRecordStopPendingTimeout()
+      try {
+        const stopResponse = await nativeCamera.stopRecord()
+        const result = await this.normalizeNativeCommandReturn(stopResponse, '录像停止失败', '视频保存中', ['14'])
+        if (!this.stopPending) {
+          return
+        }
+        if (result.success) {
+          const message = result.data != null ? safeString(result.data['message'], '') : ''
+          this.nativeStatus = hasText(message) ? message : '视频保存中'
+          if (this.nativeStatus !== '视频保存中') {
+            this.clearRecordStopPendingTimer()
+            this.stopPending = false
+          }
+        } else {
+          this.nativeStatus = safeString(result.errorMessage, '录像停止失败')
+          this.clearRecordStopPendingTimer()
+          this.stopPending = false
+        }
+      } catch (error) {
+        this.nativeStatus = safeErrorMessage(error, '录像停止失败')
+        this.clearRecordStopPendingTimer()
+        this.stopPending = false
+      }
+    },
+    formatRecordElapsed(elapsedMs: number): string {
+      const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+      const minuteText = minutes < 10 ? '0' + minutes : '' + minutes
+      const secondText = seconds < 10 ? '0' + seconds : '' + seconds
+      return minuteText + ':' + secondText
+    },
+    startRecordingClock() {
+      this.stopRecordingClock()
+      this.recordStartedAt = Date.now()
+      this.recordElapsedMs = 0
+      this.recordBlinkOn = true
+      this.recordTimer = setInterval(() => {
+        this.recordElapsedMs = Date.now() - this.recordStartedAt
+        this.recordBlinkOn = !this.recordBlinkOn
+      }, 500)
+    },
+    stopRecordingClock() {
+      const timer = this.recordTimer
+      if (timer !== null) {
+        clearInterval(timer)
+        this.recordTimer = null
+      }
+      this.recordStartedAt = 0
+      this.recordElapsedMs = 0
+      this.recordBlinkOn = true
+    },
+    clearRecordPermissionRetry() {
+      const timer = this.recordPermissionRetryTimer
+      if (timer !== null) {
+        clearTimeout(timer)
+        this.recordPermissionRetryTimer = null
+      }
+      this.recordPermissionRetryCount = 0
+    },
+    clearRecordStartRetry() {
+      const timer = this.recordStartRetryTimer
+      if (timer !== null) {
+        clearTimeout(timer)
+        this.recordStartRetryTimer = null
+      }
+    },
+    clearRecordStartPendingTimer() {
+      const timer = this.recordStartPendingTimer
+      if (timer !== null) {
+        clearTimeout(timer)
+        this.recordStartPendingTimer = null
+      }
+    },
+    clearRecordStopPendingTimer() {
+      const timer = this.recordStopPendingTimer
+      if (timer !== null) {
+        clearTimeout(timer)
+        this.recordStopPendingTimer = null
+      }
+    },
+    startRecordPendingTimeout() {
+      this.clearRecordStartPendingTimer()
+      this.recordStartPendingTimer = setTimeout(() => {
+        this.recordStartPendingTimer = null
+        if (this.recordStartPending && !this.isRecording) {
+          this.recordStartPending = false
+          this.stopRecordingClock()
+          this.nativeStatus = '录像启动超时，请重试'
+        }
+      }, 3200)
+    },
+    startRecordStopPendingTimeout() {
+      this.clearRecordStopPendingTimer()
+      this.recordStopPendingTimer = setTimeout(() => {
+        this.recordStopPendingTimer = null
+        if (this.stopPending) {
+          this.stopPending = false
+          this.nativeStatus = '视频保存超时，请重试'
+        }
+      }, RECORD_STOP_TIMEOUT_MS)
+    },
+    scheduleRecordPermissionRetry() {
+      if (!this.recordStartAfterPermission || this.recordPermissionRetryTimer !== null) {
+        return
+      }
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera == null) {
+        return
+      }
+      this.recordPermissionRetryTimer = setTimeout(() => {
+        this.recordPermissionRetryTimer = null
+        if (!this.recordStartAfterPermission || this.isRecording || this.stopPending || this.mode !== 'video') {
+          this.clearRecordPermissionRetry()
+          this.recordStartAfterPermission = false
+          return
+        }
+        this.recordPermissionRetryCount += 1
+        this.prepareRecordPermissions(true).then((ready: boolean) => {
+          if (ready) {
+            this.clearRecordPermissionRetry()
+            this.recordStartAfterPermission = false
+            this.retryCameraAfterPermission()
+            this.nativeStatus = '录像权限已准备，正在开始录像'
+            this.clearRecordStartRetry()
+            this.recordStartRetryTimer = setTimeout(() => {
+              this.recordStartRetryTimer = null
+              if (!this.isRecording && !this.stopPending && !this.recordStartAfterPermission && this.mode === 'video') {
+                this.pressShutter()
+              }
+            }, 180)
+            return
+          }
+          if (this.recordPermissionRetryCount < 80) {
+            this.scheduleRecordPermissionRetry()
+            return
+          }
+          this.clearRecordPermissionRetry()
+          this.recordStartAfterPermission = false
+          this.nativeStatus = '请先完成录像权限授权'
+        })
+      }, 350)
+    },
+    prepareCameraPermissions() {
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera != null) {
+        const result = this.normalizeNativeResult(nativeCamera.preparePermissions(), '权限准备失败')
+        const message = result.data != null ? safeString(result.data['message'], '') : ''
+        if (result.success && hasText(message)) {
+          this.nativeStatus = message
+        }
+        return result.success
+      }
+      return false
+    },
+    async prepareRecordPermissions(silent: boolean = false): Promise<boolean> {
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera != null) {
+        const result = await this.normalizeNativeCommandReturn(nativeCamera.prepareRecordPermissions(), '请先完成录像权限授权', '录像权限已准备', ['10'])
+        if (result.success) {
+          this.clearRecordPermissionRetry()
+          const message = result.data != null ? safeString(result.data['message'], '') : ''
+          if (hasText(message) && !silent) {
+            this.nativeStatus = message
+          }
+          return true
+        }
+        if (!silent) {
+          this.nativeStatus = safeString(result.errorMessage, '请先完成录像权限授权')
+        }
+        return false
+      }
+      return this.prepareCameraPermissions()
+    },
+    retryCameraAfterPermission() {
+      if (this.isRecording || this.stopPending) {
+        return
+      }
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera != null) {
+        const result = this.normalizeNativeResult(nativeCamera.restartCamera(), '相机重试失败')
+        if (result.success) {
+          this.nativeStatus = '相机已准备'
+        }
+      }
+    }
+  }
+}
+
+function resolveScreenBounds(): ScreenBounds {
+  try {
+    const info = uni.getSystemInfoSync()
+    const windowHeight = safeNumber(info.windowHeight, PORTRAIT_LAYOUT_FALLBACK_HEIGHT)
+    const screenHeight = safeNumber(info.screenHeight, windowHeight)
+    const safeArea = info.safeArea
+    const safeAreaBottom = safeArea != null ? safeNumber(safeArea.bottom, windowHeight) : windowHeight
+    const bounds = normalizePortraitLayoutBounds(
+      safeNumber(info.windowWidth, PORTRAIT_LAYOUT_FALLBACK_WIDTH),
+      Math.max(windowHeight, screenHeight, safeAreaBottom)
+    )
+    return bounds
+  } catch (_) {
+    return {
+      width: PORTRAIT_LAYOUT_FALLBACK_WIDTH,
+      height: PORTRAIT_LAYOUT_FALLBACK_HEIGHT
+    }
+  }
+}
+
+function normalizePortraitLayoutBounds(width: number, height: number): ScreenBounds {
+  const safeWidth = Math.max(1, safeNumber(width, PORTRAIT_LAYOUT_FALLBACK_WIDTH))
+  const safeHeight = Math.max(1, safeNumber(height, PORTRAIT_LAYOUT_FALLBACK_HEIGHT))
+  return {
+    width: Math.min(safeWidth, safeHeight),
+    height: Math.max(safeWidth, safeHeight)
+  }
+}
+
+function resolveCameraViewportBounds(width: number, height: number): CameraViewportBounds {
+  const safeWidth = Math.max(1, safeNumber(width, PORTRAIT_LAYOUT_FALLBACK_WIDTH))
+  const targetWidth = safeWidth
+  const targetHeight = targetWidth * CAMERA_VIEWPORT_ASPECT_HEIGHT / CAMERA_VIEWPORT_ASPECT_WIDTH
+  const left = (safeWidth - targetWidth) / 2
+  const top = CAMERA_TOP_BAR_HEIGHT
+  return {
+    left,
+    top,
+    right: left + targetWidth,
+    bottom: top + targetHeight,
+    width: targetWidth,
+    height: targetHeight
+  }
+}
+
+function resolveCameraBottomPanelBounds(width: number, height: number): CameraPanelBounds {
+  const safeWidth = Math.max(1, safeNumber(width, PORTRAIT_LAYOUT_FALLBACK_WIDTH))
+  const safeHeight = Math.max(1, safeNumber(height, PORTRAIT_LAYOUT_FALLBACK_HEIGHT))
+  const viewport = resolveCameraViewportBounds(safeWidth, safeHeight)
+  const top = viewport.bottom
+  const bottom = Math.max(top + 1, safeHeight)
+  return {
+    left: 0,
+    top,
+    right: safeWidth,
+    bottom,
+    width: safeWidth,
+    height: bottom - top
+  }
+}
+
+function resolveCameraControlsLayout(panelHeight: number): CameraControlsLayout {
+  const safePanelHeight = Math.max(1, safeNumber(panelHeight, 1))
+  const ultraCompact = safePanelHeight < CAMERA_CONTROLS_ULTRA_COMPACT_HEIGHT
+  const compact = safePanelHeight < CAMERA_CONTROLS_COMPACT_HEIGHT
+  const modeTop = ultraCompact ? 0 : (compact ? CAMERA_CONTROLS_COMPACT_TOP : CAMERA_CONTROLS_REGULAR_TOP)
+  const modeHeight = ultraCompact ? 0 : CAMERA_MODE_SWITCH_HEIGHT
+  const modeOpacity = ultraCompact ? 0 : 1
+  const gap = ultraCompact ? 0 : (compact ? CAMERA_CONTROLS_COMPACT_GAP : CAMERA_CONTROLS_REGULAR_GAP)
+  const relaxedBottomSafe = Math.min(
+    CAMERA_CONTROLS_MAX_BOTTOM_SAFE,
+    safePanelHeight >= CAMERA_CONTROLS_RELAXED_HEIGHT
+      ? CAMERA_CONTROLS_MAX_BOTTOM_SAFE
+      : CAMERA_CONTROLS_REGULAR_BOTTOM_SAFE
+  )
+  const bottomSafe = compact ? CAMERA_CONTROLS_MIN_BOTTOM_SAFE : relaxedBottomSafe
+  const minMainTop = modeTop + modeHeight + gap
+  const mainScale = ultraCompact
+    ? Math.max(0, Math.min(1, (safePanelHeight - bottomSafe - CAMERA_MAIN_CONTROLS_HEIGHT / 2) / (CAMERA_MAIN_CONTROLS_HEIGHT / 2)))
+    : 1
+  const scaledMainHalfHeight = CAMERA_MAIN_CONTROLS_HEIGHT * mainScale / 2
+  const bottomAlignedTop = ultraCompact
+    ? safePanelHeight - bottomSafe - (CAMERA_MAIN_CONTROLS_HEIGHT / 2 + scaledMainHalfHeight)
+    : safePanelHeight - CAMERA_MAIN_CONTROLS_HEIGHT - bottomSafe
+  const maxMainTop = Math.max(0, safePanelHeight - CAMERA_MAIN_CONTROLS_HEIGHT - CAMERA_CONTROLS_MIN_BOTTOM_SAFE)
+  const preferredMainTop = Math.max(minMainTop, bottomAlignedTop)
+  return {
+    modeTop,
+    modeHeight,
+    modeOpacity,
+    mainTop: ultraCompact ? bottomAlignedTop : Math.min(preferredMainTop, maxMainTop),
+    mainScale
+  }
+}
+
+function createWatermarkTemplates(): Array<WatermarkTemplate> {
+  const logo = '/static/watermark/logo3.png'
+  return [
+    {
+      templateId: 'text-delivery',
+      templateName: '纯文字',
+      templateType: 'text',
+      mainTitleText: '今日水印',
+      subtitleText: 'Android 首版',
+      mainTitleColor: '#f7f7f7',
+      subtitleColor: 'rgba(255,255,255,0.82)',
+      mainTitleFontSize: 18,
+      subtitleFontSize: 12,
+      mainTitleBold: true,
+      subtitleBold: false,
+      imagePath: '',
+      imageWidth: 0,
+      imageHeight: 0,
+      imageTextGap: 0,
+      boxWidth: 0.58,
+      boxHeight: 0.14,
+      boxBackgroundColor: 'rgba(22,24,26,0.58)',
+      boxRadius: 10,
+      boxPadding: 12,
+      opacity: 0.94,
+      positionX: 0.14,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    },
+    {
+      templateId: 'image-logo',
+      templateName: '纯图片',
+      templateType: 'image',
+      mainTitleText: '',
+      subtitleText: '',
+      mainTitleColor: '#ffffff',
+      subtitleColor: '#ffffff',
+      mainTitleFontSize: 0,
+      subtitleFontSize: 0,
+      mainTitleBold: false,
+      subtitleBold: false,
+      imagePath: logo,
+      imageWidth: 72,
+      imageHeight: 72,
+      imageTextGap: 0,
+      boxWidth: 0.34,
+      boxHeight: 0.18,
+      boxBackgroundColor: 'rgba(255,255,255,0.8)',
+      boxRadius: 14,
+      boxPadding: 12,
+      opacity: 0.94,
+      positionX: 0.16,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    },
+    {
+      templateId: 'mixed-site',
+      templateName: '图文',
+      templateType: 'mixed',
+      mainTitleText: '南京西路',
+      subtitleText: '门店巡检 · 2026-06-22',
+      mainTitleColor: '#f7f7f7',
+      subtitleColor: 'rgba(255,255,255,0.82)',
+      mainTitleFontSize: 18,
+      subtitleFontSize: 12,
+      mainTitleBold: true,
+      subtitleBold: false,
+      imagePath: logo,
+      imageWidth: 36,
+      imageHeight: 36,
+      imageTextGap: 8,
+      boxWidth: 0.66,
+      boxHeight: 0.16,
+      boxBackgroundColor: 'rgba(16,18,20,0.64)',
+      boxRadius: 12,
+      boxPadding: 12,
+      opacity: 0.96,
+      positionX: 0.12,
+      positionY: 0.16,
+      scale: 1,
+      rotation: 0
+    }
+  ]
+}
+
+function cloneTemplate(template: WatermarkTemplate): WatermarkTemplate {
+  const cloned: WatermarkTemplate = {
+    templateId: template.templateId,
+    templateName: template.templateName,
+    templateType: template.templateType,
+    mainTitleText: template.mainTitleText,
+    subtitleText: template.subtitleText,
+    mainTitleColor: template.mainTitleColor,
+    subtitleColor: template.subtitleColor,
+    mainTitleFontSize: template.mainTitleFontSize,
+    subtitleFontSize: template.subtitleFontSize,
+    mainTitleBold: template.mainTitleBold,
+    subtitleBold: template.subtitleBold,
+    imagePath: template.imagePath,
+    imageWidth: template.imageWidth,
+    imageHeight: template.imageHeight,
+    imageTextGap: template.imageTextGap,
+    boxWidth: template.boxWidth,
+    boxHeight: template.boxHeight,
+    boxBackgroundColor: template.boxBackgroundColor,
+    boxRadius: template.boxRadius,
+    boxPadding: template.boxPadding,
+    opacity: template.opacity,
+    positionX: template.positionX,
+    positionY: template.positionY,
+    scale: template.scale,
+    rotation: template.rotation
+  }
+  if (template.previewWidth != null) {
+    cloned.previewWidth = template.previewWidth
+  }
+  if (template.previewHeight != null) {
+    cloned.previewHeight = template.previewHeight
+  }
+  if (template.nativeImagePath != null) {
+    cloned.nativeImagePath = template.nativeImagePath
+  }
+  return cloned
+}
+
+function storedWatermarkTemplate(value: any | null): WatermarkTemplate | null {
+  const source = storageValueToJSONObject(value)
+  if (source == null) {
+    return null
+  }
+  const templateId = safeString(source['templateId'], '')
+  if (templateId == '') {
+    return null
+  }
+  const template: WatermarkTemplate = {
+    templateId,
+    templateName: safeString(source['templateName'], templateId),
+    templateType: safeString(source['templateType'], 'text'),
+    mainTitleText: safeString(source['mainTitleText'], ''),
+    subtitleText: safeString(source['subtitleText'], ''),
+    mainTitleColor: safeString(source['mainTitleColor'], '#ffffff'),
+    subtitleColor: safeString(source['subtitleColor'], '#ffffff'),
+    mainTitleFontSize: safeNumber(source['mainTitleFontSize'], 18),
+    subtitleFontSize: safeNumber(source['subtitleFontSize'], 12),
+    mainTitleBold: isBooleanTrue(source['mainTitleBold']),
+    subtitleBold: isBooleanTrue(source['subtitleBold']),
+    imagePath: safeString(source['imagePath'], ''),
+    imageWidth: safeNumber(source['imageWidth'], 0),
+    imageHeight: safeNumber(source['imageHeight'], 0),
+    imageTextGap: safeNumber(source['imageTextGap'], 0),
+    boxWidth: safeNumber(source['boxWidth'], 0.58),
+    boxHeight: safeNumber(source['boxHeight'], 0.14),
+    boxBackgroundColor: safeString(source['boxBackgroundColor'], 'rgba(22,24,26,0.58)'),
+    boxRadius: safeNumber(source['boxRadius'], 10),
+    boxPadding: safeNumber(source['boxPadding'], 12),
+    opacity: safeNumber(source['opacity'], 0.94),
+    positionX: safeNumber(source['positionX'], 0.14),
+    positionY: safeNumber(source['positionY'], 0.16),
+    scale: safeNumber(source['scale'], 1),
+    rotation: safeNumber(source['rotation'], 0)
+  }
+  if (source['previewWidth'] != null) {
+    template.previewWidth = safeNumber(source['previewWidth'], 0)
+  }
+  if (source['previewHeight'] != null) {
+    template.previewHeight = safeNumber(source['previewHeight'], 0)
+  }
+  if (source['nativeImagePath'] != null) {
+    template.nativeImagePath = safeString(source['nativeImagePath'], '')
+  }
+  return template
+}
+
+function storageValueToJSONObject(value: any | null): UTSJSONObject | null {
+  if (value == null) {
+    return null
+  }
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (text == '') {
+      return null
+    }
+    try {
+      const parsed = JSON.parse(text) as UTSJSONObject | null
+      return parsed != null ? parsed : null
+    } catch (error) {
+      return null
+    }
+  }
+  if (typeof value === 'object') {
+    return value as UTSJSONObject
+  }
+  return null
+}
+
+function safeString(value: any | null, fallback: string): string {
+  if (typeof value === 'string' && value.length > 0) {
+    return value
+  }
+  return fallback
+}
+
+function firstNonEmptyString(values: Array<any | null>): string {
+  for (let i = 0; i < values.length; i += 1) {
+    const value = values[i]
+    if (typeof value === 'string' && value.length > 0) {
+      return value
+    }
+  }
+  return ''
+}
+
+function safeArray(value: any | null): Array<any> {
+  return Array.isArray(value) ? value : []
+}
+
+function normalizeAvailableZoomModes(value: any | null): Array<string> {
+  const rawModes = safeArray(value)
+  const modes: Array<string> = []
+  for (let i = 0; i < rawModes.length; i += 1) {
+    const mode = safeString(rawModes[i], '')
+    if ((mode == 'wide' || mode == '1x' || mode == '2x') && !stringArrayContains(modes, mode)) {
+      modes.push(mode)
+    }
+  }
+  if (!stringArrayContains(modes, '1x')) {
+    modes.push('1x')
+  }
+  return modes
+}
+
+function normalizeUiZoomMode(mode: string): string {
+  if (mode == 'wide' || mode == '1x' || mode == '2x') {
+    return mode
+  }
+  return '1x'
+}
+
+function toastOnlyStatus(text: string): boolean {
+  return text === '焦段：广角' ||
+    text === '焦段：1x' ||
+    text === '焦段：2x' ||
+    text === '闪光灯切换中' ||
+    text === '闪光灯：开' ||
+    text === '闪光灯：自动' ||
+    text === '闪光灯：关' ||
+    text === '摄像头切换中' ||
+    text === '前置摄像头' ||
+    text === '后置摄像头' ||
+    text === '当前设备未暴露广角镜头' ||
+    text === '当前设备不支持 2x 焦段' ||
+    text === '当前设备不支持该焦段' ||
+    text === '当前设备不支持该闪光灯模式' ||
+    text === '当前设备不支持闪光灯常亮' ||
+    text === '当前设备不支持自动闪光灯' ||
+    text === '当前设备不支持切换摄像头' ||
+    text === '当前设备不支持前置摄像头' ||
+    text === '当前设备不支持后置摄像头' ||
+    text === '焦段切换失败' ||
+    text === '原生焦段接口不可用' ||
+    text === '闪光灯设置失败' ||
+    text === '原生闪光灯接口不可用' ||
+    text === '摄像头切换失败' ||
+    text === '原生摄像头切换接口不可用'
+}
+
+function stringArrayContains(values: Array<string>, target: string): boolean {
+  for (let i = 0; i < values.length; i += 1) {
+    if (values[i] == target) {
+      return true
+    }
+  }
+  return false
+}
+
+function normalizeHapticType(value: string): HapticType {
+  if (value === 'heavy') {
+    return 'heavy'
+  }
+  if (value === 'medium') {
+    return 'medium'
+  }
+  return 'light'
+}
+
+function safeNumber(value: any | null, fallback: number): number {
+  if (typeof value === 'number' && !isNaN(value)) {
+    return value
+  }
+  return fallback
+}
+
+function hasText(value: any | null): boolean {
+  return typeof value === 'string' && value.length > 0
+}
+
+function isBooleanTrue(value: any | null): boolean {
+  return typeof value === 'boolean' && value
+}
+
+function isBooleanFalse(value: any | null): boolean {
+  if (typeof value === 'boolean') {
+    return !value
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized == 'false' || normalized == '0'
+  }
+  if (typeof value === 'number') {
+    return value == 0
+  }
+  return false
+}
+
+function safeErrorMessage(error: any | null, fallback: string): string {
+  if (error != null) {
+    const message = `${error}`
+    return message.length > 0 ? message : fallback
+  }
+  return fallback
+}
+
+function normalizeRotation(rotation: number): number {
+  if (rotation > 180) {
+    return rotation - 360
+  }
+  if (rotation < -180) {
+    return rotation + 360
+  }
+  return rotation
+}
+
+function roundWatermarkPx(value: number): number {
+  return Math.round(value * 1000) / 1000
+}
+</script>
+
+<style>
+.page {
+  flex: 1;
+  background-color: #101614;
+}
+
+.cameraViewport {
+  position: absolute;
+  overflow: hidden;
+  background-color: #0b100e;
+  z-index: 1;
+}
+
+.nativePreview {
+  position: absolute;
+  background-color: #0b100e;
+  z-index: 2;
+}
+
+.cameraDebugBorder {
+  position: absolute;
+  border: 1px red solid;
+  pointer-events: none;
+  z-index: 7;
+}
+
+.watermarkLayer {
+  position: absolute;
+  z-index: 4;
+}
+
+.watermarkGesturePlane {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.watermarkPinchVisualLayer {
+  position: absolute;
+  z-index: 3;
+}
+
+.watermarkTransformBox {
+  position: absolute;
+}
+
+.watermarkContent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.86);
+  z-index: 1;
+}
+
+.watermarkDragSurface {
+  position: absolute;
+  background-color: rgba(255, 255, 255, 0.01);
+  z-index: 2;
+}
+
+.watermarkImage {
+  width: 48px;
+  height: 48px;
+}
+
+.watermarkTextBlock {
+  flex: 1;
+}
+
+.watermarkMainText {
+  font-weight: 700;
+  line-height: 24px;
+  lines: 1;
+}
+
+.watermarkSubText {
+  margin-top: 4px;
+  line-height: 18px;
+  lines: 1;
+}
+
+.watermarkDelete {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
+  background-color: #ff4b42;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+}
+
+.watermarkDeleteText {
+  width: 42px;
+  height: 42px;
+  color: #ffffff;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 39px;
+  text-align: center;
+}
+
+.watermarkRotate {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
+  background-color: rgba(255, 255, 255, 0.92);
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+}
+
+.watermarkRotateText {
+  width: 42px;
+  height: 42px;
+  color: #111917;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 42px;
+  text-align: center;
+}
+
+.watermarkResize {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
+  background-color: #ff8a00;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+}
+
+.watermarkResizeGlyph {
+  position: relative;
+  width: 26px;
+  height: 26px;
+}
+
+.watermarkResizeTopHorizontal {
+  position: absolute;
+  left: 3px;
+  top: 4px;
+  width: 10px;
+  height: 3px;
+  background-color: #ffffff;
+  border-radius: 2px;
+}
+
+.watermarkResizeTopVertical {
+  position: absolute;
+  left: 3px;
+  top: 4px;
+  width: 3px;
+  height: 10px;
+  background-color: #ffffff;
+  border-radius: 2px;
+}
+
+.watermarkResizeTopDiagonal {
+  position: absolute;
+  left: 5px;
+  top: 10px;
+  width: 12px;
+  height: 3px;
+  background-color: #ffffff;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.watermarkResizeBottomHorizontal {
+  position: absolute;
+  left: 13px;
+  top: 20px;
+  width: 10px;
+  height: 3px;
+  background-color: #ffffff;
+  border-radius: 2px;
+}
+
+.watermarkResizeBottomVertical {
+  position: absolute;
+  left: 20px;
+  top: 12px;
+  width: 3px;
+  height: 11px;
+  background-color: #ffffff;
+  border-radius: 2px;
+}
+
+.watermarkResizeBottomDiagonal {
+  position: absolute;
+  left: 9px;
+  top: 14px;
+  width: 13px;
+  height: 3px;
+  background-color: #ffffff;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.topBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 60px;
+  padding-top: 16px;
+  padding-left: 14px;
+  padding-right: 14px;
+  flex-direction: row;
+  align-items: center;
+  background-color: rgba(255, 255, 255, 0.78);
+  z-index: 8;
+}
+
+.topSide {
+  position: absolute;
+  left: 14px;
+  top: 16px;
+  width: 64px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.backButton {
+  width: 64px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.72);
+  align-items: center;
+  justify-content: center;
+}
+
+.backIcon {
+  width: 64px;
+  height: 36px;
+  color: #111917;
+  text-align: center;
+  font-size: 26px;
+  line-height: 34px;
+}
+
+.topTitleBox {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 16px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+}
+
+.topTitle {
+  width: 180px;
+  color: #111917;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 23px;
+}
+
+.topSub {
+  margin-top: 3px;
+  width: 180px;
+  color: #31403a;
+  font-size: 11px;
+  text-align: center;
+  line-height: 16px;
+  lines: 1;
+}
+
+.topRightSide {
+  position: absolute;
+  right: 14px;
+  top: 16px;
+  width: 136px;
+  height: 42px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 1;
+}
+
+.flashTapArea {
+  width: 64px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+}
+
+.flashPill {
+  width: 64px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.72);
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.flashPillActive {
+  background-color: #ff8a00;
+  border-color: #ff8a00;
+}
+
+.flashIcon {
+  width: 18px;
+  height: 36px;
+  color: #111917;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 36px;
+}
+
+.flashText {
+  width: 36px;
+  height: 36px;
+  color: #111917;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 36px;
+}
+
+.flashTextActive {
+  color: #ffffff;
+}
+
+.switchCameraTapArea {
+  width: 64px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+}
+
+.switchCameraButton {
+  width: 64px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.72);
+  align-items: center;
+  justify-content: center;
+}
+
+.switchCameraButtonActive {
+  background-color: #ff8a00;
+  border-color: #ff8a00;
+}
+
+.switchCameraButtonPending {
+  opacity: 0.62;
+}
+
+.switchCameraIcon {
+  width: 64px;
+  height: 36px;
+  color: #111917;
+  font-size: 23px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 35px;
+}
+
+.recordHud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 108px;
+  height: 34px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+}
+
+.recordBubble {
+  width: 128px;
+  height: 34px;
+  border-radius: 17px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 138, 0, 0.36);
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.recordDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background-color: #ff3b30;
+}
+
+.recordDotDim {
+  opacity: 0.46;
+}
+
+.recordHudText {
+  margin-left: 8px;
+  width: 56px;
+  height: 34px;
+  color: #111917;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 34px;
+}
+
+.zoomRail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 38px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+}
+
+.zoomButton {
+  width: 54px;
+  height: 36px;
+  margin-left: 3px;
+  margin-right: 3px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.88);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.78);
+  align-items: center;
+  justify-content: center;
+}
+
+.zoomButtonSelected {
+  background-color: #ff8a00;
+  border-color: #ff8a00;
+}
+
+.zoomText {
+  width: 54px;
+  height: 36px;
+  color: #17211d;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 36px;
+}
+
+.zoomTextSelected {
+  color: #ffffff;
+}
+
+.bottomPanel {
+  position: absolute;
+  padding: 8px 22px 12px;
+  background-color: #e2e6e4;
+  overflow: hidden;
+  z-index: 5;
+}
+
+.modeSwitchWrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  height: 36px;
+  overflow: hidden;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraSoundTapArea {
+  position: absolute;
+  left: 22px;
+  top: -3px;
+  width: 64px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraSoundPill {
+  width: 64px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.72);
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraSoundPillActive {
+  background-color: #ff8a00;
+  border-color: #ff8a00;
+}
+
+.cameraSoundIcon {
+  width: 18px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraSoundIconText {
+  width: 18px;
+  height: 36px;
+  color: #111917;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 35px;
+}
+
+.cameraSoundText {
+  width: 36px;
+  height: 36px;
+  color: #111917;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 36px;
+}
+
+.cameraSoundTextActive {
+  color: #ffffff;
+}
+
+.modeSwitch {
+  position: relative;
+  width: 176px;
+  height: 36px;
+  border-radius: 18px;
+  background-color: rgba(17, 25, 23, 0.08);
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.68);
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modeThumb {
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  width: 78px;
+  height: 30px;
+  border-radius: 15px;
+  background-color: #ff8a00;
+  transform: translateX(0px);
+  transition-property: transform;
+  transition-duration: 260ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 0;
+}
+
+.modeThumbVideo {
+  transform: translateX(0px);
+}
+
+.modeThumbPhoto {
+  transform: translateX(88px);
+}
+
+.modeButton {
+  position: relative;
+  width: 88px;
+  height: 36px;
+  border-radius: 15px;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.modeText {
+  position: relative;
+  width: 88px;
+  height: 20px;
+  color: #5f665f;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 20px;
+}
+
+.modeTextSelected {
+  color: #ffffff;
+}
+
+.mainControls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 88px;
+}
+
+.shutterWrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 88px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.controlLeft {
+  position: absolute;
+  left: 22px;
+  top: 12px;
+  z-index: 2;
+}
+
+.controlRight {
+  position: absolute;
+  right: 22px;
+  top: 12px;
+  z-index: 2;
+}
+
+.resultButton,
+.cameraButton {
+  width: 58px;
+  height: 58px;
+  border-radius: 29px;
+  background-color: rgba(255, 255, 255, 0.82);
+  align-items: center;
+  justify-content: center;
+}
+
+.resultThumb {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  border-width: 2px;
+  border-style: solid;
+  border-color: #28342f;
+  background-color: rgba(39, 52, 47, 0.88);
+  align-items: center;
+  justify-content: center;
+}
+
+.resultThumbFilled {
+  border-color: #ffffff;
+  background-color: #111917;
+}
+
+.resultThumbVideo {
+  border-color: #ff3b30;
+}
+
+.resultThumbImage {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+}
+
+.resultThumbIcon {
+  width: 42px;
+  height: 42px;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 42px;
+  text-align: center;
+}
+
+.resultVideoBadge {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background-color: #ff3b30;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.cameraIcon {
+  width: 58px;
+  height: 58px;
+  color: #111917;
+  font-size: 25px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 58px;
+}
+
+.shutter {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  border-radius: 44px;
+  background-color: rgba(255, 255, 255, 0.42);
+  border-width: 2px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.86);
+  align-items: center;
+  justify-content: center;
+  transition-property: background-color, border-color;
+  transition-duration: 220ms;
+  transition-timing-function: ease-out;
+}
+
+.shutterCore {
+  width: 76px;
+  height: 76px;
+  border-radius: 38px;
+  background-color: #ffffff;
+  transform: scale(1);
+  transition-property: transform, background-color, border-radius;
+  transition-duration: 220ms;
+  transition-timing-function: ease-out;
+}
+
+.shutterVideo {
+  border-width: 2px;
+  border-color: rgba(255, 59, 48, 0.72);
+  background-color: rgba(255, 59, 48, 0.2);
+}
+
+.shutterRecording {
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.3);
+  background-color: rgba(36, 36, 36, 0.78);
+}
+
+.shutterCoreVideo {
+  background-color: #ff3b30;
+}
+
+.shutterCoreRecording {
+  border-radius: 14px;
+  transform: scale(0.6);
+}
+
+.watermarkSheetMask {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 12px 14px;
+  background-color: rgba(0, 0, 0, 0.42);
+  justify-content: flex-end;
+  z-index: 9;
+}
+
+.watermarkSheet {
+  border-radius: 16px;
+  background-color: #f7f8f9;
+  padding: 14px;
+}
+
+.watermarkSheetHeader {
+  height: 36px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.watermarkSheetTitle {
+  color: #111917;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.watermarkSheetClose {
+  width: 30px;
+  height: 30px;
+  color: #4d5752;
+  font-size: 24px;
+  line-height: 30px;
+  text-align: center;
+}
+
+.watermarkEmpty {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background-color: rgba(255, 138, 0, 0.12);
+}
+
+.watermarkEmptyText {
+  color: #7a664f;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.watermarkTemplateCard {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background-color: #ffffff;
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(17, 25, 23, 0.08);
+}
+
+.watermarkTemplateCardActive {
+  border-color: rgba(255, 138, 0, 0.5);
+  background-color: rgba(255, 138, 0, 0.1);
+}
+
+.watermarkPreview {
+  height: 58px;
+  border-radius: 10px;
+  padding: 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+}
+
+.watermarkPreviewImage {
+  width: 42px;
+  height: 42px;
+  margin-right: 8px;
+}
+
+.watermarkPreviewText {
+  flex: 1;
+}
+
+.watermarkPreviewTitle {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 21px;
+}
+
+.watermarkPreviewSub {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.watermarkTemplateMeta {
+  margin-top: 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.watermarkTemplateName {
+  color: #111917;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.watermarkTemplateType {
+  color: #6b746f;
+  font-size: 12px;
+}
+</style>

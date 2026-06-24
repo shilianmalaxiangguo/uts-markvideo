@@ -4,8 +4,9 @@
       "path": "pages/index/index",
       "style": {
         "navigationBarTitleText": "XYC MarkVideo",
-        "navigationBarBackgroundColor": "#f6f7f9",
-        "navigationBarTextStyle": "black"
+        "navigationBarBackgroundColor": "#f5f7f9",
+        "navigationBarTextStyle": "black",
+        "backgroundColorContent": "#f5f7f9"
       }
     },
     {
@@ -14,12 +15,14 @@
         "navigationBarTitleText": "XYC 相机",
         "navigationStyle": "custom",
         "disableScroll": true,
-        "backgroundColor": "#101614"
+        "backgroundColor": "#101614",
+        "backgroundColorContent": "#e2e6e4"
       }
     }
   ],
   "globalStyle": {
-    "backgroundColor": "#f6f7f9",
+    "backgroundColor": "#f5f7f9",
+    "backgroundColorContent": "#f5f7f9",
     "pageOrientation": "portrait"
   }
 }

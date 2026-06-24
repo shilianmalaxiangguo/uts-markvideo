@@ -9,15 +9,15 @@
     <view class="panel">
       <view class="panelRow">
         <text class="panelLabel">当前模板</text>
-        <text class="panelValue">{{ currentTemplate ? currentTemplate.templateName : '未选择' }}</text>
+        <text class="panelValue">{{ currentTemplateNameValue() }}</text>
       </view>
       <view class="panelRow">
         <text class="panelLabel">模板类型</text>
-        <text class="panelValue">{{ currentTemplate ? templateTypeLabel(currentTemplate.templateType) : '待选择' }}</text>
+        <text class="panelValue">{{ currentTemplateTypeLabelValue() }}</text>
       </view>
       <view class="panelRow">
         <text class="panelLabel">图片资源</text>
-        <text class="panelValue">{{ currentTemplate && currentTemplate.imagePath ? 'logo3.png' : '无' }}</text>
+        <text class="panelValue">{{ currentTemplateImageLabelValue() }}</text>
       </view>
       <view class="panelRow">
         <text class="panelLabel">录像</text>
@@ -48,11 +48,11 @@
             @click="selectWatermarkTemplate(template)"
           >
             <view class="templatePreview">
-              <view v-if="template.templateType !== 'image'" class="previewTextBlock">
+              <view v-if="templateHasText(template)" class="previewTextBlock">
                 <text class="previewMain" :style="{ color: template.mainTitleColor, fontSize: template.mainTitleFontSize + 'px' }">{{ template.mainTitleText }}</text>
-                <text v-if="template.subtitleText" class="previewSub" :style="{ color: template.subtitleColor, fontSize: template.subtitleFontSize + 'px' }">{{ template.subtitleText }}</text>
+                <text v-if="templateHasSubtitle(template)" class="previewSub" :style="{ color: template.subtitleColor, fontSize: template.subtitleFontSize + 'px' }">{{ template.subtitleText }}</text>
               </view>
-              <view v-if="template.imagePath" class="previewImageWrap">
+              <view v-if="templateHasImage(template)" class="previewImageWrap">
                 <image class="previewImage" :src="template.imagePath" mode="aspectFill"></image>
               </view>
             </view>
@@ -68,16 +68,44 @@
   </view>
 </template>
 
-<script>
+<script lang="uts">
 const WATERMARK_STORAGE_KEY = 'xyc-camera-watermark-template'
+
+type WatermarkTemplate = {
+  templateId: string,
+  templateName: string,
+  templateType: string,
+  mainTitleText: string,
+  subtitleText: string,
+  mainTitleColor: string,
+  subtitleColor: string,
+  mainTitleFontSize: number,
+  subtitleFontSize: number,
+  mainTitleBold: boolean,
+  subtitleBold: boolean,
+  imagePath: string,
+  imageWidth: number,
+  imageHeight: number,
+  imageTextGap: number,
+  boxWidth: number,
+  boxHeight: number,
+  boxBackgroundColor: string,
+  boxRadius: number,
+  boxPadding: number,
+  opacity: number,
+  positionX: number,
+  positionY: number,
+  scale: number,
+  rotation: number
+}
 
 export default {
   data() {
     return {
       showWatermarkSheet: false,
       currentTemplateId: '',
-      currentTemplate: null,
-      watermarkTemplates: createWatermarkTemplates()
+      currentTemplate: null as WatermarkTemplate | null,
+      watermarkTemplates: createWatermarkTemplates() as Array<WatermarkTemplate>
     }
   },
   onShow() {
@@ -86,9 +114,10 @@ export default {
   methods: {
     restoreTemplate() {
       const stored = uni.getStorageSync(WATERMARK_STORAGE_KEY)
-      if (stored && stored.templateId) {
-        this.currentTemplateId = stored.templateId
-        this.currentTemplate = cloneTemplate(stored)
+      const template = storedWatermarkTemplate(stored)
+      if (template != null) {
+        this.currentTemplateId = template.templateId
+        this.currentTemplate = template
         return
       }
       this.currentTemplateId = ''
@@ -100,22 +129,44 @@ export default {
     closeWatermarkSheet() {
       this.showWatermarkSheet = false
     },
-    selectWatermarkTemplate(template) {
+    selectWatermarkTemplate(template: WatermarkTemplate): void {
       const nextTemplate = cloneTemplate(template)
       this.currentTemplateId = nextTemplate.templateId
       this.currentTemplate = nextTemplate
-      uni.setStorageSync(WATERMARK_STORAGE_KEY, nextTemplate)
+      uni.setStorageSync(WATERMARK_STORAGE_KEY, JSON.stringify(nextTemplate))
       this.showWatermarkSheet = false
     },
     enterCamera() {
-      if (this.currentTemplate) {
-        uni.setStorageSync(WATERMARK_STORAGE_KEY, this.currentTemplate)
+      const currentTemplate = this.currentTemplate
+      if (currentTemplate != null) {
+        uni.setStorageSync(WATERMARK_STORAGE_KEY, JSON.stringify(currentTemplate))
       }
       uni.navigateTo({
         url: '/pages/cameraX/index'
       })
     },
-    templateTypeLabel(type) {
+    currentTemplateNameValue(): string {
+      const template = this.currentTemplate
+      if (template == null) {
+        return '未选择'
+      }
+      return template.templateName
+    },
+    currentTemplateTypeLabelValue(): string {
+      const template = this.currentTemplate
+      if (template == null) {
+        return '待选择'
+      }
+      return this.templateTypeLabel(template.templateType)
+    },
+    currentTemplateImageLabelValue(): string {
+      const template = this.currentTemplate
+      if (template != null && template.imagePath != '') {
+        return 'logo3.png'
+      }
+      return '无'
+    },
+    templateTypeLabel(type: string): string {
       if (type === 'image') {
         return '图片'
       }
@@ -124,7 +175,16 @@ export default {
       }
       return '文字'
     },
-    templateCardClass(template) {
+    templateHasText(template: WatermarkTemplate): boolean {
+      return template.templateType !== 'image'
+    },
+    templateHasSubtitle(template: WatermarkTemplate): boolean {
+      return template.subtitleText.length > 0
+    },
+    templateHasImage(template: WatermarkTemplate): boolean {
+      return template.imagePath.length > 0
+    },
+    templateCardClass(template: WatermarkTemplate): Array<string> {
       const classes = ['templateCard']
       if (this.currentTemplateId === template.templateId) {
         classes.push('templateCardActive')
@@ -134,7 +194,7 @@ export default {
   }
 }
 
-function createWatermarkTemplates() {
+function createWatermarkTemplates(): Array<WatermarkTemplate> {
   const logo = '/static/watermark/logo3.png'
   return [
     {
@@ -221,8 +281,115 @@ function createWatermarkTemplates() {
   ]
 }
 
-function cloneTemplate(template) {
-  return JSON.parse(JSON.stringify(template))
+function cloneTemplate(template: WatermarkTemplate): WatermarkTemplate {
+  return {
+    templateId: template.templateId,
+    templateName: template.templateName,
+    templateType: template.templateType,
+    mainTitleText: template.mainTitleText,
+    subtitleText: template.subtitleText,
+    mainTitleColor: template.mainTitleColor,
+    subtitleColor: template.subtitleColor,
+    mainTitleFontSize: template.mainTitleFontSize,
+    subtitleFontSize: template.subtitleFontSize,
+    mainTitleBold: template.mainTitleBold,
+    subtitleBold: template.subtitleBold,
+    imagePath: template.imagePath,
+    imageWidth: template.imageWidth,
+    imageHeight: template.imageHeight,
+    imageTextGap: template.imageTextGap,
+    boxWidth: template.boxWidth,
+    boxHeight: template.boxHeight,
+    boxBackgroundColor: template.boxBackgroundColor,
+    boxRadius: template.boxRadius,
+    boxPadding: template.boxPadding,
+    opacity: template.opacity,
+    positionX: template.positionX,
+    positionY: template.positionY,
+    scale: template.scale,
+    rotation: template.rotation
+  }
+}
+
+function storedWatermarkTemplate(value: any | null): WatermarkTemplate | null {
+  const source = storageValueToJSONObject(value)
+  if (source == null) {
+    return null
+  }
+  const templateId = safeString(source['templateId'], '')
+  if (templateId == '') {
+    return null
+  }
+  return {
+    templateId,
+    templateName: safeString(source['templateName'], templateId),
+    templateType: safeString(source['templateType'], 'text'),
+    mainTitleText: safeString(source['mainTitleText'], ''),
+    subtitleText: safeString(source['subtitleText'], ''),
+    mainTitleColor: safeString(source['mainTitleColor'], '#ffffff'),
+    subtitleColor: safeString(source['subtitleColor'], '#ffffff'),
+    mainTitleFontSize: safeNumber(source['mainTitleFontSize'], 18),
+    subtitleFontSize: safeNumber(source['subtitleFontSize'], 12),
+    mainTitleBold: safeBoolean(source['mainTitleBold'], false),
+    subtitleBold: safeBoolean(source['subtitleBold'], false),
+    imagePath: safeString(source['imagePath'], ''),
+    imageWidth: safeNumber(source['imageWidth'], 0),
+    imageHeight: safeNumber(source['imageHeight'], 0),
+    imageTextGap: safeNumber(source['imageTextGap'], 0),
+    boxWidth: safeNumber(source['boxWidth'], 0.58),
+    boxHeight: safeNumber(source['boxHeight'], 0.14),
+    boxBackgroundColor: safeString(source['boxBackgroundColor'], 'rgba(22,24,26,0.58)'),
+    boxRadius: safeNumber(source['boxRadius'], 10),
+    boxPadding: safeNumber(source['boxPadding'], 12),
+    opacity: safeNumber(source['opacity'], 0.94),
+    positionX: safeNumber(source['positionX'], 0.14),
+    positionY: safeNumber(source['positionY'], 0.16),
+    scale: safeNumber(source['scale'], 1),
+    rotation: safeNumber(source['rotation'], 0)
+  }
+}
+
+function storageValueToJSONObject(value: any | null): UTSJSONObject | null {
+  if (value == null) {
+    return null
+  }
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (text == '') {
+      return null
+    }
+    try {
+      const parsed = JSON.parse(text) as UTSJSONObject | null
+      return parsed != null ? parsed : null
+    } catch (error) {
+      return null
+    }
+  }
+  if (typeof value === 'object') {
+    return value as UTSJSONObject
+  }
+  return null
+}
+
+function safeString(value: any | null, fallback: string): string {
+  if (typeof value === 'string' && value.length > 0) {
+    return value
+  }
+  return fallback
+}
+
+function safeNumber(value: any | null, fallback: number): number {
+  if (typeof value === 'number' && !isNaN(value)) {
+    return value
+  }
+  return fallback
+}
+
+function safeBoolean(value: any | null, fallback: boolean): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  return fallback
 }
 </script>
 
@@ -240,14 +407,14 @@ function cloneTemplate(template) {
 .brand {
   color: #0d72ff;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .title {
   margin-top: 6px;
   color: #17212b;
   font-size: 28px;
-  font-weight: 900;
+  font-weight: 700;
   line-height: 36px;
 }
 
@@ -280,7 +447,7 @@ function cloneTemplate(template) {
 .panelValue {
   color: #18212b;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .actions {
@@ -308,7 +475,7 @@ function cloneTemplate(template) {
 
 .actionText {
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .ghostText {
@@ -346,7 +513,7 @@ function cloneTemplate(template) {
 .sheetTitle {
   color: #18212b;
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .sheetClose {
@@ -389,7 +556,7 @@ function cloneTemplate(template) {
 
 .previewMain {
   color: #f7f7f7;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 24px;
 }
 
@@ -422,7 +589,7 @@ function cloneTemplate(template) {
 .templateName {
   color: #18212b;
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .templateType {
@@ -434,6 +601,6 @@ function cloneTemplate(template) {
   margin-top: 8px;
   color: #ff8a00;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 </style>

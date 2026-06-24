@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 `markvideo-mvp` 主线已经切到 `pages/index/index.nvue`、`pages/cameraX/index.nvue` 和 `uni_modules/xyc-markvideo`。本阶段在原生相机跑通的基础上接入水印能力，先做 Android。
+当前 `markvideo-mvp-uvue` 主线已经切到 `pages/index/index.uvue`、`pages/cameraX/index.uvue` 和 `uni_modules/xyc-markvideo`。本阶段在原生相机跑通的基础上接入水印能力，先做 Android。
 
 老 PRD 中的远程 Logo、独立设置页和旧 `recordWatermarkVideo` API 只作为历史参考，不作为本轮实现入口。
 
@@ -10,7 +10,7 @@
 
 - 首页提供水印设置入口，并用全局弹层展示 3 个模板。
 - 模板支持纯文字、纯图片、图片加文字。
-- 选中的模板传入 `pages/cameraX/index.nvue`。
+- 选中的模板传入 `pages/cameraX/index.uvue`。
 - 相机页右侧控制按钮改为圆形 `印` 按钮。
 - 点击 `印` 可以在相机页内重新选择模板。
 - 相机预览上最多显示 1 个可编辑水印，为后续多个水印保留数组结构。
@@ -38,7 +38,7 @@ Android 录像不能再使用 `MediaRecorder.VideoSource.CAMERA` 直录作为水
 
 因此本轮 Android 交付改为：
 
-- 页面预览：相机页通过 `cover-view` 实时显示水印，可在录像中看到。
+- 页面预览：相机页通过 `.uvue` 普通 `view` overlay 实时显示水印，可在录像中看到。
 - 照片输出：Android 原生在 JPEG 回调后解码 Bitmap，用 Canvas 绘制水印，再重新编码保存。
 - 视频输出：Android 原生通过 `PixelCopy` 从相机预览 Surface 按目标帧率取帧，用 Canvas 绘制冻结水印，再用 `MediaCodec` 编码 H.264；音频使用 `AudioRecord` 编码 AAC，最后通过 `MediaMuxer` 合成 MP4。
 - 水印模板存在且帧级编码成功时，视频结果标记 `watermarkVideoBurnIn=true`。
@@ -76,6 +76,8 @@ Android 录像不能再使用 `MediaRecorder.VideoSource.CAMERA` 直录作为水
 | `scale` | number | 缩放，默认 `1`。 |
 | `rotation` | number | 旋转角度，单位度。 |
 
+本 MVP 的 `templateType` 暂用页面内简化枚举：`text`、`image`、`mixed`。长期嵌入式组件 PRD 的正式枚举仍是 `title_text`、`title_subtitle_text`、`image_title_subtitle`；抽取稳定插件前需要做一次字段归一化，当前对应关系是 `text -> title_text`、`image -> image_title_subtitle`、`mixed -> image_title_subtitle`。
+
 ## 默认模板
 
 1. `text-delivery`：纯文字模板，白色半透明背景，主标题加粗。
@@ -88,7 +90,7 @@ Android 录像不能再使用 `MediaRecorder.VideoSource.CAMERA` 直录作为水
 - 点击 `水印设置` 打开全局弹层。
 - 弹层中每个 item 必须显示缩略图和标题。
 - 选择模板后保存到 `xyc-camera-watermark-template`。
-- 点击 `进入相机` 时，如果已有选择，把模板写入 storage 后进入 `pages/cameraX/index.nvue`。
+- 点击 `进入相机` 时，如果已有选择，把模板写入 storage 后进入 `pages/cameraX/index.uvue`。
 
 ## 相机页行为
 
@@ -97,8 +99,8 @@ Android 录像不能再使用 `MediaRecorder.VideoSource.CAMERA` 直录作为水
 - 如果已从首页传入模板，弹层中对应 item 显示选中态。
 - 选择模板后立即显示水印 overlay 并同步到原生。
 - 删除后清除页面 overlay，并调用 `clearWatermark()`。
-- 拖拽采用 `movable-area` + `movable-view`，由原生拖拽组件接管位移；`movable-view` 必须作为 `movable-area` 的直接子节点，水印内容和删除、旋转、缩放控件必须共用同一个移动根。
-- 缩放采用水印主体双指捏合：`movable-view` 继续负责单指拖拽，页面用双指 touch 距离计算 `watermarkFrame.scale`。不要依赖 `movable-view` 原生 `scale` 作为 nvue 主路径，因为 `movable-area` 在 app-nvue 平台手势缩放支持有限；右下角缩放图标只作为视觉提示，不绑定 `touchmove` 缩放逻辑。缩放时页面 overlay 立即更新，原生 `setWatermark()` 做短防抖同步；拖拽松手、缩放松手、拍照前和录像前必须 flush 最新水印。
+- 拖拽采用 `.uvue` 普通 `view` + touch 事件，由页面维护 `watermarkMovePosition` 和 `watermarkDragGesture`，水印内容和删除、旋转、缩放控件必须共用同一个移动根。
+- 缩放采用水印主体双指捏合：页面用双指 touch 距离计算 `watermarkFrame.scale`，单指 touch 负责拖拽；右下角缩放图标只作为视觉提示，不绑定单独的 `touchmove` 缩放逻辑。缩放时页面 overlay 立即更新，原生 `setWatermark()` 做短防抖同步；拖拽松手、缩放松手、拍照前和录像前必须 flush 最新水印。
 - 点击左上角旋转按钮时，水印内容围绕自身中心顺时针旋转 90 度，删除、旋转、缩放三个编辑控件必须放在旋转内容层外，保持贴在未旋转编辑框角点，不随内容旋转或随旋转外接框漂移；整体按内容和控件的外接范围限制在预览可编辑区域内，并立即调用 `setWatermark()`。
 - 录像中冻结水印，禁止删除、切换、拖拽、缩放和旋转。
 
@@ -148,4 +150,4 @@ Android 录像不能再使用 `MediaRecorder.VideoSource.CAMERA` 直录作为水
 - 拍照后相册照片可看到水印。
 - 选中水印后录像，视频结果返回水印快照和 `watermarkVideoBurnIn=true`，相册回放可看到水印。
 - `npm test` 通过。
-- nvue/UTS 页面不使用 `margin auto`。
+- uvue/UTS 页面不使用 `margin auto`。

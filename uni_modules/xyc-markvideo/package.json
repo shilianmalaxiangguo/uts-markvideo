@@ -49,6 +49,15 @@
 				"alipay": "-"
 			},
 			"client": {
+				"Vue": {
+					"vue2": "-",
+					"vue3": "y"
+				},
+				"App": {
+					"app-android": "y",
+					"app-ios": "-",
+					"app-harmony": "-"
+				},
 				"uni-app": {
 					"vue": {
 						"vue2": "-",

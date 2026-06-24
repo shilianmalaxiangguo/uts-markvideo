@@ -6,6 +6,7 @@
   "versionCode": "1",
   "vueVersion": "3",
   "transformPx": false,
+  "uni-app-x": {},
   "app-plus": {
     "screenOrientation": [
       "portrait-primary",

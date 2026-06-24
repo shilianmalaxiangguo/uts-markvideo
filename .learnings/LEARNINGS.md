@@ -6,6 +6,236 @@ Corrections, insights, and knowledge gaps captured during development.
 
 ---
 
+## [LRN-20260625-C03] correction
+
+**Logged**: 2026-06-25T00:23:47+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 焦段切换是用户可感知的相机控制，点击时也要触发轻震。
+
+### Details
+用户反馈“现在焦距切换没震动”。复查 `pages/cameraX/index.uvue` 发现 `cycleFlashMode()`、`switchCameraFacing()`、拍照和录像入口都有 `triggerHaptic()`，但 `setZoomMode()` 缺少这一步。焦段 rail 会立即更新 selected 状态并向 native 发起切焦段请求，属于同一类相机控制反馈；pending 期间被接受并排队的 zoom tap 也应该给轻震，让用户知道点击已被接收。
+
+### Suggested Action
+后续新增或调整 CameraX 控制入口时，把触觉反馈纳入交互合同：只要点击被页面接受并会改变/排队改变相机控制状态，就在业务阻断条件之后调用 `triggerHaptic('light')`；保存中、录制禁止等被拒绝的点击不震动。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, zoom, haptic, uvue, interaction-feedback
+- See Also: LRN-20260625-C02
+- Pattern-Key: uts_markvideo.camera_controls_haptic_feedback
+- Recurrence-Count: 1
+- First-Seen: 2026-06-25
+- Last-Seen: 2026-06-25
+
+### Resolution
+- **Resolved**: 2026-06-25T00:23:47+08:00
+- **Commit/PR**: pending
+- **Notes**: Added `triggerHaptic('light')` to `setZoomMode()` after the stop-pending guard and before pending/dispatch handling, added a structure-test assertion, and verified `npm test`, `git diff --check`, and HBuilderX Android UTS compile.
+
+---
+
+## [LRN-20260625-C02] correction
+
+**Logged**: 2026-06-25T00:07:29+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 焦段 selected 状态不能只防 stale payload，zoom 枚举字符串也不能在 `.uvue` 关键路径里用 `===`/`!==`。
+
+### Details
+用户复测继续反馈：点击 `2x` 后相机实际已经到 2x，但底部焦距 item 又自动选回 `1x`。上一条 `zoomLatestRequestMode` guard 假设只解释了晚到 payload，但漏了 `.uvue`/UTS 运行时字符串比较语义：native 回包里的 `requestedZoomMode` / `zoomMode` 是动态字符串，`normalizeUiZoomMode()`、zoom 按钮 class、`handleZoomChange()`、`syncZoomMode()` 等关键路径如果用 `===`/`!==`，生成端可能把值比较误判为默认分支，导致 `2x` 被归一化成 `1x`。这和此前 flash 的 `on/auto/off` 问题是同类。
+
+### Suggested Action
+后续维护来自 native payload 的 `.uvue` 小枚举字符串时，状态机、UI selected class、label 和数组去重都用已验证的值比较写法；结构测试要像 flash 一样用 `doesNotMatch` 防止 zoom 关键路径重新引入 `===`/`!==`。
+
+### Metadata
+- Source: user_feedback, systematic_debugging
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, zoom, uvue, uts, string-comparison, native-event
+- See Also: LRN-20260624-C11, LRN-20260624-C07
+- Pattern-Key: uts_markvideo.zoom_string_value_comparison
+- Recurrence-Count: 1
+- First-Seen: 2026-06-25
+- Last-Seen: 2026-06-25
+
+### Resolution
+- **Resolved**: 2026-06-25T00:07:29+08:00
+- **Commit/PR**: pending
+- **Notes**: Replaced zoom-critical strict string comparisons with value comparisons, added zoom comparison regression assertions, and verified `npm test`, `git diff --check`, and HBuilderX Android UTS compile.
+
+---
+
+## [LRN-20260625-C01] correction
+
+**Logged**: 2026-06-25T00:01:10+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 视频/照片 switch 的胶囊间距问题要先看橙色 thumb 与外层白色边框的几何内距，不要误判成文字上下对齐。
+
+### Details
+用户明确纠正：问题不是“视频/照片”文字的 padding 或 baseline，而是橙色选中背景和外层白色边框之间的内距。第一处是下边距几乎没有；第二处是选中“照片”时橙色 thumb 右侧紧贴外层白边；第三处是右侧 3px 仍偏少，需要再给右侧多一点呼吸。带 border 的 uni-app x 原生 view 里，`modeSwitch` 轨道高度 36px、thumb `top: 2px; height: 32px` 会在实际内框中把底部空间吃得太满；`left: 2px; width: 84px; translateX(88px)` 会让照片态右侧只剩很窄的视觉缝。用文字 `translateY()` 只能掩盖问题，不能修复外框与 thumb 的真实几何关系。
+
+### Suggested Action
+后续调这个 segmented switch 时，优先改 `.modeThumb` 的 top/height/radius/left/width 等几何参数，并用结构测试锁定；不要加空 spacer view，也不要把主修复放到 `.modeText` 的 transform 或 line-height 上。真机截图判断时聚焦橙色 thumb 到白色外边框的上下和左右内距。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, mode-switch, uvue, segmented-control, geometry
+- Pattern-Key: uts_markvideo.mode_switch_thumb_border_gap
+- Recurrence-Count: 1
+- First-Seen: 2026-06-25
+- Last-Seen: 2026-06-25
+
+### Resolution
+- **Resolved**: 2026-06-25T00:01:10+08:00
+- **Commit/PR**: pending
+- **Notes**: Reduced the selected thumb height to create bottom inset, narrowed the thumb to 78px with `left: 3px` so the right edge has more breathing room in photo mode, removed text translateY, and added regression assertions.
+
+---
+
+## [LRN-20260624-C11] correction
+
+**Logged**: 2026-06-24T23:54:25+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 焦段 UI selected 状态不能只防 `syncZoomMode`，还要防晚到的 `cameraready`/native state payload 把 latest request 覆盖回 `1x`。
+
+### Details
+用户复测反馈：点击 `2x` 后相机实际已经切到 2x，但底部焦距 item 又自动选回 `1x`。前一轮只处理了 pending/queued 请求和 camera ready 后续 silent sync，但 `handleCameraReady()` 开头仍会调用 `applyNativeCameraState(detail)`；如果这个 ready payload 携带旧的 `zoomMode: 1x` 且没有 `requestedZoomMode`，就会在用户 latest request 为 `2x` 时把 `zoomSelectedMode` 和 `zoomLatestRequestMode` 回写成 `1x`。另外，成功的 `zoomchange` 也不能优先相信 payload 的 `zoomMode`，应该优先采用与本次命令匹配的 `requestedZoomMode`。
+
+### Suggested Action
+后续维护焦段状态时，把 `zoomLatestRequestMode` 当作 UI intent guard：`applyNativeCameraState()` 只有在 payload 的 `zoomMode` 或 `requestedZoomMode` 与 latest request 匹配，或正在执行 camera switch 这种明确重置路径时，才更新 `zoomSelectedMode`/`zoomLatestRequestMode`。成功的 `handleZoomChange()` 和 `syncZoomMode()` response 合并应优先使用 `requestedZoomMode`，避免旧 `zoomMode` payload 把已应用的 2x/广角 item 拉回 1x。
+
+### Metadata
+- Source: user_feedback, systematic_debugging
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, zoom, uvue, native-event, stale-payload
+- See Also: LRN-20260624-C10
+- Pattern-Key: uts_markvideo.zoom_selected_latest_request_guard
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T23:54:25+08:00
+- **Commit/PR**: pending
+- **Notes**: Guarded `applyNativeCameraState()` against stale zoom payloads, changed successful zoom event/response merging to prefer `requestedZoomMode`, added regression assertions, and verified `npm test` plus `git diff --check`.
+
+---
+
+## [LRN-20260624-C06] correction
+
+**Logged**: 2026-06-24T20:45:43+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 焦段 UI 不应依赖 native `availableZoomModes` 隐藏或拦截 2x。
+
+### Details
+用户指出实际设备有 2x，但页面没有返回/展示 2x。原因是迁移到 uni-app x 后把 native 上报的 `availableZoomModes` 当作 UI 展示和点击拦截的唯一依据；Camera1 的倍率能力上报可能低于严格 200，比如最接近 200 的倍率在 190-199 时仍能作为 2x 体验使用。正确策略是焦段 UI 固定展示“广角 / 1x / 2x”，点击后交给 native 应用结果决定是否成功；失败时回退到 1x 并提示“当前设备未暴露广角镜头”或“当前设备不支持 2x 焦段”。
+
+### Suggested Action
+后续处理相机能力时，区分“业务 UI 提供的入口”和“native 能力探测结果”。能力列表可以用于诊断或状态回显，但不要直接隐藏用户预期的核心入口；native 应用失败后再给明确提示并保持实际选中状态。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.uvue, uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt, test/structure.test.mjs
+- Tags: cameraX, zoom, availableZoomModes, Camera1, uni-app-x
+- See Also: LRN-20260624-C04
+- Pattern-Key: uts_markvideo.camera_zoom_ui_not_bound_to_available_modes
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T20:45:43+08:00
+- **Commit/PR**: pending
+- **Notes**: Zoom controls now always render wide/1x/2x, page sends selected modes to native instead of pre-blocking via `availableZoomModes`, and Android 2x availability now uses the same closest-to-200 selection plus 190 threshold as actual zoom application.
+
+---
+
+## [LRN-20260624-C07] correction
+
+**Logged**: 2026-06-24T21:26:39+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 连续切焦段时要防止旧 native 事件覆盖最新选中态和提示。
+
+### Details
+用户复现：先点广角，再点 2x，再点回 1x，UI item 已选中 1x，但提示仍显示 2x/旧失败提示，并且提示一直挂着。原因是焦段页面状态只用 `zoomEventHandled` / `zoomRequestSilent` 处理单次请求，没有记录最后一次用户选择；旧的 `zoomchange` 事件晚到时仍能覆盖 `nativeStatus`。另外点击当前已选中的 1x 时直接 return，不能清掉上一条 unsupported 或 2x 提示。
+
+### Suggested Action
+后续处理相机按钮这类 native 异步回包时，记录“最后一次用户意图”，并用 native 事件里的 requested mode/type 做 stale-event guard。pending 期间的最新点击要排队，在当前 native 回包结束后补发；点击当前已选状态也应刷新可见状态文案，不能静默返回后留下旧错误提示。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, zoom, stale-event, nativeStatus, uni-app-x
+- See Also: LRN-20260624-C06
+- Pattern-Key: uts_markvideo.camera_zoom_stale_event_status_guard
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T21:26:39+08:00
+- **Commit/PR**: pending
+- **Notes**: Added `zoomLatestRequestMode` and `zoomQueuedMode`, ignored stale zoom events whose requested mode no longer matches the latest user intent, replayed the last pending zoom tap after the active native request finishes, and refreshed `nativeStatus` when tapping the already selected zoom mode.
+
+---
+
+## [LRN-20260624-C08] correction
+
+**Logged**: 2026-06-24T22:36:17+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 水印长按拖拽不能只补 `longpress`，一指拖动要回到 `movable-view` 并解析 `event.detail.x/y`。
+
+### Details
+用户反馈“现在缩放可以了，但是长按拖拽还是不行”。第一次只加 `@longpress` 和单指 `touchmove` 兜底后，真机仍不能长按拖动，说明问题不在 longpress 入口本身。`.uvue` 普通 `view` 手算移动不如原来 `movable-view` 稳定；更关键的是 `movable-view @change` 的坐标在 `event.detail.x/y`，如果只从事件对象本体取 `x/y`，页面会丢掉移动坐标，松手后无法提交水印位置，表现为拖不动或回弹。
+
+### Suggested Action
+后续改水印手势时，一指拖动优先让 `movable-area/movable-view` 承担，页面通过 `@change` 同步 `watermarkMoveDraft` 和 `watermarkMovePosition`；双指缩放继续用 sibling overlay 避免 pinch 闪烁。处理 movable change 时必须先读 `event['detail']`，再兼容测试里直接传 `{ detail: { x, y } }` 的手写对象。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, watermark, longpress, drag, movable-view, uni-app-x
+- See Also: LRN-20260624-C02
+- Pattern-Key: uts_markvideo.watermark_drag_movable_change_detail
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T22:36:17+08:00
+- **Commit/PR**: pending
+- **Notes**: Restored `movable-area/movable-view` as the one-finger drag root, kept pinch visual rendering in the sibling overlay, and added `watermarkMoveEventDetail()` so `@change` reads `event.detail.x/y` before committing the move.
+
+---
+
 ## [LRN-20260623-C14] correction
 
 **Logged**: 2026-06-22T17:53:51Z
@@ -1257,5 +1487,136 @@ CameraX 声音 switch 的图标要干净，切换后要给轻提示。
 - **Resolved**: 2026-06-24T14:40:22+08:00
 - **Commit/PR**: pending
 - **Notes**: Replaced the blocky speaker glyph with a compact music-note text icon and added non-blocking `uni.showToast` feedback after successful toggles.
+
+---
+
+## [LRN-20260624-C06] best_practice
+
+**Logged**: 2026-06-24T23:00:09+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 顶栏可见控件必须高于浮动控件层，否则会出现“看得到但点不到”的假失效。
+
+### Details
+闪光灯按钮真机表现为点击后仍显示或提示“关”。复查 logcat 发现点顶栏时输入事件进入 `UniAppActivity`，但没有任何 `XycMarkVideo flash mode request`，说明不是 native 闪光灯不支持，而是页面点击没有到达 `cycleFlashMode()`。截图和样式层级显示 `zoomRail` 的 `z-index: 6` 高于 `topBar` 的旧 `z-index: 5`，透明/浮动层会覆盖顶栏右侧胶囊。将 `.topBar` 提到 `z-index: 8` 后，真机连续点击得到 `requested=on -> auto -> off`，HAL 也出现 `torch mode = 1`。
+
+### Suggested Action
+后续 CameraX 顶栏、zoom rail、record HUD、bottom panel 同屏叠层时，先检查可见层和可点击层是否一致。顶栏控制区要高于浮动 rail；如果视觉控件可见但没有 native 日志，优先怀疑层级/命中区域，不要直接改 native 闪光灯逻辑。
+
+### Metadata
+- Source: device_log, subagent_audit
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, flash, z-index, touch-hit-test, uvue
+- See Also: LRN-20260624-C04
+- Pattern-Key: uts_markvideo.topbar_controls_above_floating_rails
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T23:00:09+08:00
+- **Commit/PR**: pending
+- **Notes**: Raised `.topBar` above `.zoomRail`, added structure-test guards for the layer order, and verified on SM-N9500 with `requested=on/auto/off`.
+
+---
+
+## [LRN-20260624-C07] best_practice
+
+**Logged**: 2026-06-24T23:00:09+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+uni-app x `.uvue` 闪光灯状态机的字符串值判断不要用 `===`/`!==` 锁关键 UI 状态。
+
+### Details
+页面曾把 flash cycle 的核心比较改成 `==` 后，生成 Kotlin 的循环逻辑能正确识别 `on/auto/off`。但 `flashModeText()`、`flashPillClass()`、`flashModeLabel()` 等 UI/提示路径仍保留 `===`/`!==`，生成 Kotlin 里也保留 `===`，可能导致 runtime string 值被误判为默认“关”。这类判断会让 native 已经 `requested=on applied=true actual=torch` 时，页面仍有机会显示或 fallback 到“关”。
+
+### Suggested Action
+在 `.uvue` 里处理来自 native payload 的小枚举字符串时，关键状态机和显示逻辑统一用可生成 Kotlin 值比较的写法，并在 `test/structure.test.mjs` 加 `doesNotMatch` 约束防止闪光灯路径重引入 `===/!==`。
+
+### Metadata
+- Source: device_log, generated_kotlin
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs, unpackage/cache/.app-android/src/pages/cameraX/index.kt
+- Tags: cameraX, flash, uvue, uts, kotlin, string-comparison
+- See Also: LRN-20260624-C06
+- Pattern-Key: uts_markvideo.flash_string_value_comparison
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T23:00:09+08:00
+- **Commit/PR**: pending
+- **Notes**: Replaced flash UI/status comparisons with value comparison, generated Kotlin shows `==`, and `npm test` now guards against flash path `===/!==` regressions.
+
+---
+## [LRN-20260624-C09] correction
+
+**Logged**: 2026-06-24T23:06:52+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+uni-app x CameraX 水印长按拖拽不能只依赖外层 `movable-view` 或 `longpress`，水印本体需要明确的拖拽命中层。
+
+### Details
+用户连续反馈“缩放可以了，但是长按拖拽还是不行”。先只加 `longpress`，再恢复 `movable-view @change` 和 `event.detail.x/y` 后，真机仍不能按住水印本体拖动。commit 前审计确认：用户实际按住的是内部 `watermarkContent`、`image`、`text` 子树，而拖动状态门槛 `watermarkMoveActive` 只在 `startWatermarkMove()` 里打开；如果本体触摸没有进入这条入口，`@change` 即使有坐标也会被丢弃。右下角 resize 图标也不能留成无语义命中区。
+
+### Suggested Action
+后续改水印交互时，保留非 pinch 移动根内的 `watermarkDragSurface`：放在 `watermarkContent` 上方、delete/rotate/resize 控件下方，覆盖同一个 handle pad 内区域，直接绑定 `startWatermarkTouch` / `moveWatermarkTouch` / `finishWatermarkTouch`。pinch sibling overlay 不放这个命中层；resize 图标如果只是视觉提示，要和 delete/rotate 一样 `.stop`，避免抢拖动。不要为了绕过问题放宽 `handleWatermarkMoveChange()` 的 `watermarkMoveActive` 门槛，除非真机日志证明只有 native change 没有 page touchstart。
+
+### Metadata
+- Source: user_feedback, subagent_audit
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, watermark, uvue, movable-view, drag, touch-hit-test
+- See Also: LRN-20260624-C08, LRN-20260624-C02, LRN-20260623-C13, LRN-20260623-C14
+- Pattern-Key: uts_markvideo.watermark_body_drag_surface
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T23:06:52+08:00
+- **Commit/PR**: pending
+- **Notes**: Added `watermarkDragSurface` above content and below handles, stopped resize touch propagation, added regression tests, and verified `npm test` plus `git diff --check`.
+
+---
+
+## [LRN-20260624-C10] correction
+
+**Logged**: 2026-06-24T23:42:00+08:00
+**Priority**: critical
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+uni-app x `.uvue` CameraX 水印拖拽和缩放不能再混用 `movable-view` 原生位移和页面手写 touch 数学。
+
+### Details
+用户继续反馈“长按拖拽还是不行”，随后指出“甚至缩放都有问题了，会缩放到右下角开始，本质是缩放和拖拽出了问题”。这说明上一轮只补 `watermarkDragSurface` 仍是症状修补：非 pinch 状态下可见水印在 `movable-view` 里，同时 `watermarkDragSurface` 和父级也绑定 `touchstart/touchmove`，会让原生 `movable-view` 位移、页面 `touchmove` 手算位移、pinch sibling overlay 三套状态争同一份 frame。正确修复是把水印交互根改成普通绝对定位 `view`，由 `watermarkGesturePlaneStyleValue()` 统一读取 `watermarkMovePosition`；拖拽热区使用 `.stop`，避免子层触摸再冒泡到父层重复启动手势；缩放继续只走 `watermarkPinchPreviewFrame()` / `updateWatermarkFrame()` 的同一套 frame。
+
+### Suggested Action
+后续处理 `.uvue` CameraX 水印拖拽、缩放、旋转时，保持单一控制器：不要恢复 `<movable-area>` / `<movable-view>`，不要重新绑定 `:x/:y`、`@change` 或 `watermarkBoxStyleValue()` 到水印层。页面 touch 事件可以直接更新 `watermarkMoveDraft` 和 `watermarkMovePosition`，松手后再提交 frame；pinch 更新只写 pinch gesture 预览，结束时一次性提交。结构测试必须持续保护“无 movable-view 原生状态”和“拖拽热区 `.stop` 防重复触发”。
+
+### Metadata
+- Source: user_feedback, systematic_debugging
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, watermark, uvue, drag, pinch, movable-view, touch-hit-test
+- See Also: LRN-20260624-C08, LRN-20260624-C09, LRN-20260624-C02, ERR-20260623-001
+- Pattern-Key: uts_markvideo.watermark_single_page_touch_controller
+- Recurrence-Count: 1
+- First-Seen: 2026-06-24
+- Last-Seen: 2026-06-24
+
+### Resolution
+- **Resolved**: 2026-06-24T23:42:00+08:00
+- **Commit/PR**: pending
+- **Notes**: Replaced the watermark `movable-area/movable-view` root with a normal `view`, routed positioning through `watermarkGesturePlaneStyleValue()`, stopped drag-surface propagation, removed unused movable-only helpers, and added regression tests. `node --test test/structure.test.mjs` and `git diff --check -- pages/cameraX/index.uvue test/structure.test.mjs` passed.
 
 ---

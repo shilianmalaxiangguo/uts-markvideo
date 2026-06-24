@@ -42,11 +42,10 @@ import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Log
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.OrientationEventListener
-import android.view.PixelCopy
 import android.view.Surface
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -61,11 +60,11 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
-class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolder.Callback {
+class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.SurfaceTextureListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioThread = HandlerThread("xyc-markvideo-io").apply { start() }
     private val ioHandler = Handler(ioThread.looper)
-    private val previewView = SurfaceView(context)
+    private val previewView = TextureView(context)
     private val statusView = TextView(context)
     private val mediaActionSound = MediaActionSound().apply {
         load(MediaActionSound.SHUTTER_CLICK)
@@ -86,7 +85,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private var camera: Camera? = null
     private var videoRecorder: CameraMp4Recorder? = null
     private var activeCameraId = -1
-    private var holderReady = false
+    private var previewReady = false
     private var currentMode = "photo"
     private var requestedFlashMode = UI_FLASH_OFF
     private var requestedZoomMode = UI_ZOOM_1X
@@ -141,7 +140,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             captureOrientationListener.enable()
         }
         setBackgroundColor(Color.BLACK)
-        previewView.holder.addCallback(this)
+        previewView.surfaceTextureListener = this
         addView(
             previewView,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -212,6 +211,31 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             .put("message", if (cameraSoundEnabled) "提示音已开启" else "提示音已关闭"))
     }
 
+    fun performHapticFeedback(type: String): String {
+        return runOnMainSync {
+            val normalizedType = normalizeHapticType(type)
+            val feedbackType = when (normalizedType) {
+                "medium", "heavy" -> HapticFeedbackConstants.LONG_PRESS
+                else -> HapticFeedbackConstants.KEYBOARD_TAP
+            }
+            var applied = try {
+                this@XycNativeCameraView.performHapticFeedback(feedbackType)
+            } catch (_: Throwable) {
+                false
+            }
+            if (!applied) {
+                applied = try {
+                    previewView.performHapticFeedback(feedbackType)
+                } catch (_: Throwable) {
+                    false
+                }
+            }
+            ok(payload()
+                .put("hapticType", normalizedType)
+                .put("applied", applied))
+        }
+    }
+
     fun setFlashMode(mode: String): String {
         return runOnMainSync {
             val previousMode = requestedFlashMode
@@ -222,11 +246,11 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 requestedFlashMode = previousMode
                 applyFlashModeIfCameraOpen(false)
             }
-            val data = payload()
-                .put("flashMode", requestedFlashMode)
-                .put("requestedFlashMode", normalizedMode)
-                .put("applied", applied)
-                .put("message", if (applied) flashModeMessage(requestedFlashMode) else unsupportedFlashModeMessage(normalizedMode))
+            val data = flashModePayload(normalizedMode, previousMode, applied)
+            Log.i(
+                LOG_TAG,
+                "flash mode request requested=${normalizedMode} applied=${applied} ui=${requestedFlashMode} native=${data.optString("nativeFlashMode")} actual=${data.optString("actualFlashMode")} supported=${data.optJSONArray("supportedFlashModes")}"
+            )
             emit("flashchange", data)
             ok(data)
         }
@@ -234,13 +258,12 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
 
     fun setZoomMode(mode: String): String {
         return runOnMainSync {
-            val previousMode = requestedZoomMode
             val normalizedMode = normalizeZoomMode(mode)
             requestedZoomMode = normalizedMode
             val applied = applyZoomModeIfCameraOpen(false)
             if (!applied && requestedZoomMode != UI_ZOOM_1X) {
-                requestedZoomMode = previousMode
-                if (camera == null && holderReady && hasPermission(Manifest.permission.CAMERA)) {
+                requestedZoomMode = UI_ZOOM_1X
+                if (camera == null && previewReady && hasPermission(Manifest.permission.CAMERA)) {
                     openCameraIfReady()
                 } else {
                     applyZoomModeIfCameraOpen(false)
@@ -262,7 +285,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             if (recording || recordingStartPending || recordingStopRequested || photoBusy) {
                 return@runOnMainSync failAndEmit("1105", "拍摄或保存中不能切换摄像头", "switchCamera while busy")
             }
-            if (!holderReady) {
+            if (!previewReady) {
                 return@runOnMainSync failAndEmit("1104", "相机未就绪", "Preview surface is not ready.")
             }
             if (!hasPermission(Manifest.permission.CAMERA)) {
@@ -300,7 +323,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 requestedCameraFacing = previousFacing
                 requestedZoomMode = previousZoomMode
                 requestedFlashMode = previousFlashMode
-                if (holderReady && hasPermission(Manifest.permission.CAMERA)) {
+                if (previewReady && hasPermission(Manifest.permission.CAMERA)) {
                     openCameraIfReady()
                 }
             }
@@ -370,7 +393,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 )
             }
 
-            if (holderReady && camera == null) {
+            if (previewReady && camera == null) {
                 openCameraIfReady()
             } else {
                 ok(payload().put("message", "权限已准备"))
@@ -396,7 +419,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             }
             recordPermissionRequested = false
             recordPermissionRetryCount = 0
-            if (holderReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
+            if (previewReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
                 openCameraIfReady()
             }
             ok(payload().put("message", "录像权限已准备"))
@@ -554,11 +577,6 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 "相机未就绪",
                 "Camera is not open."
             )
-            val holder = previewView.holder ?: return@runOnMainSync failAndEmit(
-                "1104",
-                "相机未就绪",
-                "Preview holder is null."
-            )
             val recordingFlashError = validateRecordingFlashMode(activeCamera)
             if (recordingFlashError != null) {
                 return@runOnMainSync failAndEmit("1102", recordingFlashError, recordingFlashError)
@@ -566,10 +584,6 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             if (!applyFlashModeIfCameraOpen(false)) {
                 return@runOnMainSync failAndEmit("1102", "录像闪光灯设置失败", "录像闪光灯设置失败")
             }
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                return@runOnMainSync failAndEmit("1401", "当前系统不支持水印录像", "PixelCopy requires Android O or newer.")
-            }
-
             val fps = parseFps(optionsJson)
             targetFps = fps
             val frozenWatermark = activeWatermark
@@ -634,7 +648,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             nextRecorder.start()
 
             transferredToRecording = runOnMainSync {
-                if (!recordingStartPending || recordingStopRequested || recording || camera == null || !holderReady) {
+                if (!recordingStartPending || recordingStopRequested || recording || camera == null || !previewReady) {
                     return@runOnMainSync false
                 }
 
@@ -800,18 +814,22 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         }
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
-        holderReady = true
+    override fun onSurfaceTextureAvailable(surface: android.graphics.SurfaceTexture, width: Int, height: Int) {
+        previewReady = true
         openCameraIfReady()
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        holderReady = true
+    override fun onSurfaceTextureSizeChanged(surface: android.graphics.SurfaceTexture, width: Int, height: Int) {
+        previewReady = true
     }
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
-        holderReady = false
+    override fun onSurfaceTextureDestroyed(surface: android.graphics.SurfaceTexture): Boolean {
+        previewReady = false
         closeCamera()
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(surface: android.graphics.SurfaceTexture) {
     }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
@@ -825,21 +843,21 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             if (camera != null) {
                 closeCamera()
             }
-            if (holderReady && hasPermission(Manifest.permission.CAMERA)) {
+            if (previewReady && hasPermission(Manifest.permission.CAMERA)) {
                 openCameraIfReady()
             } else {
                 setStatus("录像权限已准备")
             }
             return
         }
-        if (hasWindowFocus && holderReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
+        if (hasWindowFocus && previewReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
             cameraPermissionRequested = false
             openCameraIfReady()
         }
     }
 
     private fun openCameraIfReady(): String {
-        if (!holderReady) {
+        if (!previewReady) {
             return failAndEmit("1104", "相机未就绪", "Preview surface is not ready.")
         }
         if (!hasPermission(Manifest.permission.CAMERA)) {
@@ -862,7 +880,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             val activeCamera = Camera.open(activeCameraId)
             activeCamera.setDisplayOrientation(resolveCameraDisplayOrientationDegrees(activeCameraId))
             applyCameraParameters(activeCamera)
-            activeCamera.setPreviewDisplay(previewView.holder)
+            val previewTexture = previewView.surfaceTexture
+                ?: return failAndEmit("1104", "相机未就绪", "Preview texture is null.")
+            activeCamera.setPreviewTexture(previewTexture)
             activeCamera.startPreview()
             camera = activeCamera
             if (requestedFlashMode != UI_FLASH_OFF) {
@@ -1041,14 +1061,18 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     }
 
     private fun resolveNativeFlashMode(supportedModes: List<String>): String? {
-        return when (requestedFlashMode) {
+        return resolveNativeFlashModeForMode(requestedFlashMode, supportedModes)
+    }
+
+    private fun resolveNativeFlashModeForMode(mode: String, supportedModes: List<String>): String? {
+        return when (mode) {
             UI_FLASH_ON -> {
-                when {
-                    supportedModes.contains(Camera.Parameters.FLASH_MODE_TORCH) ->
-                        Camera.Parameters.FLASH_MODE_TORCH
-                    currentMode != "video" && supportedModes.contains(Camera.Parameters.FLASH_MODE_ON) ->
-                        Camera.Parameters.FLASH_MODE_ON
-                    else -> null
+                if (supportedModes.contains(Camera.Parameters.FLASH_MODE_TORCH)) {
+                    Camera.Parameters.FLASH_MODE_TORCH
+                } else if (currentMode == "photo" && supportedModes.contains(Camera.Parameters.FLASH_MODE_ON)) {
+                    Camera.Parameters.FLASH_MODE_ON
+                } else {
+                    null
                 }
             }
             UI_FLASH_AUTO -> {
@@ -1138,6 +1162,25 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             .put("availableCameraFacings", cameraFacingsPayload())
             .put("availableZoomModes", zoomModesPayload(camera?.parameters))
             .put("applied", applied)
+    }
+
+    private fun flashModePayload(requestedMode: String, previousMode: String, applied: Boolean): org.json.JSONObject {
+        val parameters = camera?.parameters
+        val supportedModes = parameters?.supportedFlashModes
+        val resolvedNativeMode = if (supportedModes.isNullOrEmpty()) null else resolveNativeFlashModeForMode(requestedMode, supportedModes)
+        val actualFlashMode = parameters?.flashMode ?: ""
+        return payload()
+            .put("flashMode", requestedFlashMode)
+            .put("requestedFlashMode", requestedMode)
+            .put("previousFlashMode", previousMode)
+            .put("nativeFlashMode", resolvedNativeMode ?: "")
+            .put("actualFlashMode", actualFlashMode)
+            .put("supportedFlashModes", flashModesPayload(supportedModes))
+            .put("currentMode", currentMode)
+            .put("cameraId", activeCameraId)
+            .put("cameraFacing", activeCameraFacing())
+            .put("applied", applied)
+            .put("message", if (applied) flashModeMessage(requestedFlashMode) else unsupportedFlashModeMessage(requestedMode))
     }
 
     private fun validateRecordingFlashMode(activeCamera: Camera): String? {
@@ -1243,10 +1286,6 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         if (!recording || !videoFrameLoopRunning) {
             return
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            failAndEmit("1401", "当前系统不支持水印录像", "PixelCopy requires Android O or newer.")
-            return
-        }
         if (!videoFramePending.compareAndSet(false, true)) {
             return
         }
@@ -1269,91 +1308,99 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         }
 
         try {
-            val copyListener = object : PixelCopy.OnPixelCopyFinishedListener {
-                override fun onPixelCopyFinished(copyResult: Int) {
-                    if (copyResult != PixelCopy.SUCCESS) {
-                        markRecordingFrameSkip(RECORD_STAGE_PIXEL_COPY, "result=${copyResult}")
-                        Log.w(LOG_TAG, "record frame pixelcopy failed: stage=${RECORD_STAGE_PIXEL_COPY}; result=${copyResult}")
-                        videoFramePending.set(false)
-                        scheduleNextVideoFrame(frameStartedAt)
-                        return
-                    }
-                    if ((!recording && !recordingStopRequested) || (!videoFrameLoopRunning && !recordingStopRequested)) {
-                        videoFramePending.set(false)
-                        return
-                    }
-                    ioHandler.post {
+            if (!copyPreviewFrameInto(targetBitmap)) {
+                markRecordingFrameSkip(RECORD_STAGE_PREVIEW_COPY, "copied=false")
+                Log.w(LOG_TAG, "record frame preview copy failed: stage=${RECORD_STAGE_PREVIEW_COPY}")
+                videoFramePending.set(false)
+                scheduleNextVideoFrame(frameStartedAt)
+                return
+            }
+            if ((!recording && !recordingStopRequested) || (!videoFrameLoopRunning && !recordingStopRequested)) {
+                videoFramePending.set(false)
+                return
+            }
+            ioHandler.post {
+                try {
+                    var watermarkReady = true
+                    applyFrontCameraFrameMirrorIfNeeded(targetBitmap, frameCameraFacing)
+                    if (frameWatermarkOverlay != null) {
                         try {
-                            var watermarkReady = true
-                            applyFrontCameraFrameMirrorIfNeeded(targetBitmap, frameCameraFacing)
-                            if (frameWatermarkOverlay != null) {
-                                try {
-                                    drawWatermarkOverlay(targetBitmap, frameWatermarkOverlay)
-                                } catch (throwable: Throwable) {
-                                    watermarkReady = false
-                                    markRecordingFrameError(RECORD_STAGE_WATERMARK_DRAW, throwable)
-                                    Log.w(
-                                        LOG_TAG,
-                                        "record frame watermark overlay failed: ${frameErrorDiagnostics()}",
-                                        throwable
-                                    )
-                                }
-                            } else if (frameWatermark != null) {
-                                try {
-                                    val burnedIn = drawWatermarkOnPhoto(
-                                        Canvas(targetBitmap),
-                                        targetBitmap.width,
-                                        targetBitmap.height,
-                                        frameWatermark,
-                                        frameWatermarkBitmap
-                                    )
-                                    if (!burnedIn) {
-                                        throw IllegalStateException("水印内容不可绘制")
-                                    }
-                                } catch (throwable: Throwable) {
-                                    watermarkReady = false
-                                    markRecordingFrameError(RECORD_STAGE_WATERMARK_DRAW, throwable)
-                                    Log.w(
-                                        LOG_TAG,
-                                        "record frame watermark failed: ${frameErrorDiagnostics()}",
-                                        throwable
-                                    )
-                                }
-                            }
-                            if (watermarkReady) {
-                                try {
-                                    if (!recorder.encodeFrame(targetBitmap)) {
-                                        markRecordingFrameSkip(RECORD_STAGE_VIDEO_INPUT_BUFFER, recorder.diagnostics(RECORD_STAGE_VIDEO_INPUT_BUFFER))
-                                        Log.d(
-                                            LOG_TAG,
-                                            "record frame skipped because encoder input buffer was not ready: ${recorder.diagnostics(RECORD_STAGE_VIDEO_INPUT_BUFFER)}"
-                                        )
-                                    }
-                                } catch (throwable: Throwable) {
-                                    markRecordingFrameError(recorder.currentStage(), throwable)
-                                    Log.w(
-                                        LOG_TAG,
-                                        "record frame encode failed: ${recorder.diagnostics()}",
-                                        throwable
-                                    )
-                                }
+                            drawWatermarkOverlay(targetBitmap, frameWatermarkOverlay)
+                        } catch (throwable: Throwable) {
+                            watermarkReady = false
+                            markRecordingFrameError(RECORD_STAGE_WATERMARK_DRAW, throwable)
+                            Log.w(
+                                LOG_TAG,
+                                "record frame watermark overlay failed: ${frameErrorDiagnostics()}",
+                                throwable
+                            )
+                        }
+                    } else if (frameWatermark != null) {
+                        try {
+                            val burnedIn = drawWatermarkOnPhoto(
+                                Canvas(targetBitmap),
+                                targetBitmap.width,
+                                targetBitmap.height,
+                                frameWatermark,
+                                frameWatermarkBitmap
+                            )
+                            if (!burnedIn) {
+                                throw IllegalStateException("水印内容不可绘制")
                             }
                         } catch (throwable: Throwable) {
-                            markRecordingFrameError(RECORD_STAGE_FRAME_UNHANDLED, throwable)
-                            Log.w(LOG_TAG, "record frame failed: ${frameErrorDiagnostics()}", throwable)
-                        } finally {
-                            videoFramePending.set(false)
-                            scheduleNextVideoFrame(frameStartedAt)
+                            watermarkReady = false
+                            markRecordingFrameError(RECORD_STAGE_WATERMARK_DRAW, throwable)
+                            Log.w(
+                                LOG_TAG,
+                                "record frame watermark failed: ${frameErrorDiagnostics()}",
+                                throwable
+                            )
                         }
                     }
+                    if (watermarkReady) {
+                        try {
+                            if (!recorder.encodeFrame(targetBitmap)) {
+                                markRecordingFrameSkip(RECORD_STAGE_VIDEO_INPUT_BUFFER, recorder.diagnostics(RECORD_STAGE_VIDEO_INPUT_BUFFER))
+                                Log.d(
+                                    LOG_TAG,
+                                    "record frame skipped because encoder input buffer was not ready: ${recorder.diagnostics(RECORD_STAGE_VIDEO_INPUT_BUFFER)}"
+                                )
+                            }
+                        } catch (throwable: Throwable) {
+                            markRecordingFrameError(recorder.currentStage(), throwable)
+                            Log.w(
+                                LOG_TAG,
+                                "record frame encode failed: ${recorder.diagnostics()}",
+                                throwable
+                            )
+                        }
+                    }
+                } catch (throwable: Throwable) {
+                    markRecordingFrameError(RECORD_STAGE_FRAME_UNHANDLED, throwable)
+                    Log.w(LOG_TAG, "record frame failed: ${frameErrorDiagnostics()}", throwable)
+                } finally {
+                    videoFramePending.set(false)
+                    scheduleNextVideoFrame(frameStartedAt)
                 }
             }
-            PixelCopy.request(previewView, targetBitmap, copyListener, mainHandler)
         } catch (throwable: Throwable) {
             videoFramePending.set(false)
-            val detail = "stage=${RECORD_STAGE_PIXEL_COPY}; error=${errorSummary(throwable)}"
+            val detail = "stage=${RECORD_STAGE_PREVIEW_COPY}; error=${errorSummary(throwable)}"
             failAndEmit("1402", "录像帧复制失败", detail)
             scheduleNextVideoFrame(frameStartedAt)
+        }
+    }
+
+    private fun copyPreviewFrameInto(targetBitmap: Bitmap): Boolean {
+        if (!previewReady || !previewView.isAvailable) {
+            return false
+        }
+        return try {
+            previewView.getBitmap(targetBitmap)
+            true
+        } catch (throwable: Throwable) {
+            Log.w(LOG_TAG, "preview frame copy failed: ${errorSummary(throwable)}", throwable)
+            false
         }
     }
 
@@ -1538,20 +1585,13 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         }
         val targetBitmap = Bitmap.createBitmap(recorder.width, recorder.height, Bitmap.Config.ARGB_8888)
         val latch = CountDownLatch(1)
-        val copyResult = IntArray(1) { -1 }
+        val copyResult = BooleanArray(1) { false }
         mainHandler.post {
             try {
-                PixelCopy.request(
-                    previewView,
-                    targetBitmap,
-                    { result ->
-                        copyResult[0] = result
-                        latch.countDown()
-                    },
-                    mainHandler
-                )
+                copyResult[0] = copyPreviewFrameInto(targetBitmap)
             } catch (throwable: Throwable) {
-                Log.w(LOG_TAG, "record final frame copy failed: stage=${RECORD_STAGE_FINAL_PIXEL_COPY}; error=${errorSummary(throwable)}", throwable)
+                Log.w(LOG_TAG, "record final frame copy failed: stage=${RECORD_STAGE_FINAL_PREVIEW_COPY}; error=${errorSummary(throwable)}", throwable)
+            } finally {
                 latch.countDown()
             }
         }
@@ -1561,9 +1601,9 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             Thread.currentThread().interrupt()
             false
         }
-        if (!copied || copyResult[0] != PixelCopy.SUCCESS) {
-            markRecordingFrameSkip(RECORD_STAGE_FINAL_PIXEL_COPY, "copied=${copied}; result=${copyResult[0]}")
-            Log.w(LOG_TAG, "record final frame pixelcopy failed: stage=${RECORD_STAGE_FINAL_PIXEL_COPY}; copied=${copied}; result=${copyResult[0]}")
+        if (!copied || !copyResult[0]) {
+            markRecordingFrameSkip(RECORD_STAGE_FINAL_PREVIEW_COPY, "copied=${copied}; success=${copyResult[0]}")
+            Log.w(LOG_TAG, "record final frame preview copy failed: stage=${RECORD_STAGE_FINAL_PREVIEW_COPY}; copied=${copied}; success=${copyResult[0]}")
             targetBitmap.recycle()
             return false
         }
@@ -2555,9 +2595,29 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         if (parameters != null && parameters.isZoomSupported) {
             val ratios = parameters.zoomRatios ?: emptyList()
             val maxZoom = parameters.maxZoom
-            if (maxZoom > 0 && ratios.any { it >= 200 }) {
-                modes.put(UI_ZOOM_2X)
+            val maxIndex = min(maxZoom, ratios.size - 1)
+            if (maxIndex > 0) {
+                var bestIndex = 0
+                var bestScore = Int.MAX_VALUE
+                for (index in 0..maxIndex) {
+                    val score = abs(ratios[index] - 200)
+                    if (score < bestScore) {
+                        bestScore = score
+                        bestIndex = index
+                    }
+                }
+                if (ratios[bestIndex] >= 190) {
+                    modes.put(UI_ZOOM_2X)
+                }
             }
+        }
+        return modes
+    }
+
+    private fun flashModesPayload(supportedModes: List<String>?): org.json.JSONArray {
+        val modes = org.json.JSONArray()
+        supportedModes?.forEach { mode ->
+            modes.put(mode)
         }
         return modes
     }
@@ -2867,7 +2927,30 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     }
 
     private fun shouldShowCenterStatus(text: String): Boolean {
-        return text != "相机已准备" &&
+        return text.isNotBlank() &&
+            !text.startsWith("焦段：") &&
+            !text.startsWith("闪光灯：") &&
+            !text.startsWith("提示音已") &&
+            text != "闪光灯切换中" &&
+            text != "摄像头切换中" &&
+            text != "当前设备未暴露广角镜头" &&
+            text != "当前设备不支持 2x 焦段" &&
+            text != "当前设备不支持该焦段" &&
+            text != "当前设备不支持该闪光灯模式" &&
+            text != "当前设备不支持闪光灯常亮" &&
+            text != "当前设备不支持自动闪光灯" &&
+            text != "当前设备不支持切换摄像头" &&
+            text != "当前设备不支持前置摄像头" &&
+            text != "当前设备不支持后置摄像头" &&
+            text != "焦段切换失败" &&
+            text != "原生焦段接口不可用" &&
+            text != "闪光灯设置失败" &&
+            text != "原生闪光灯接口不可用" &&
+            text != "前置摄像头" &&
+            text != "后置摄像头" &&
+            text != "摄像头切换失败" &&
+            text != "原生摄像头切换接口不可用" &&
+            text != "相机已准备" &&
             text != "拍照完成" &&
             text != "录像完成" &&
             text != "照片已保存到相册" &&
@@ -2875,6 +2958,13 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
             text != "照片已生成，相册保存失败" &&
             text != "视频已生成，相册保存失败" &&
             text != "录像中"
+    }
+
+    private fun normalizeHapticType(type: String): String {
+        return when (type) {
+            "medium", "heavy" -> type
+            else -> "light"
+        }
     }
 
     private fun ok(data: org.json.JSONObject): String {
@@ -2940,7 +3030,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
     private fun scheduleCameraPermissionRetry() {
         val retryRunnable = object : Runnable {
             override fun run() {
-                if (!holderReady || camera != null || !cameraPermissionRequested) {
+                if (!previewReady || camera != null || !cameraPermissionRequested) {
                     return
                 }
                 if (hasPermission(Manifest.permission.CAMERA)) {
@@ -2967,7 +3057,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
                 if (recordMissingPermissions().isEmpty()) {
                     recordPermissionRequested = false
                     recordPermissionRetryCount = 0
-                    if (holderReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
+                    if (previewReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
                         openCameraIfReady()
                     } else {
                         setStatus("录像权限已准备")
@@ -3807,8 +3897,8 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), SurfaceHolde
         const val RECORD_STAGE_VIDEO_ENCODER_START = "video_encoder_start"
         const val RECORD_STAGE_AUDIO_ENCODER_START = "audio_encoder_start"
         const val RECORD_STAGE_AUDIO_THREAD_JOIN = "audio_thread_join"
-        const val RECORD_STAGE_PIXEL_COPY = "pixelcopy"
-        const val RECORD_STAGE_FINAL_PIXEL_COPY = "final_pixelcopy"
+        const val RECORD_STAGE_PREVIEW_COPY = "preview_copy"
+        const val RECORD_STAGE_FINAL_PREVIEW_COPY = "final_preview_copy"
         const val RECORD_STAGE_WATERMARK_DRAW = "watermark_draw"
         const val RECORD_STAGE_FINAL_WATERMARK_DRAW = "final_watermark_draw"
         const val RECORD_STAGE_FRAME_UNHANDLED = "frame_unhandled"

@@ -4,6 +4,100 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260625-001] hbuilderx_launch_missing_xyc_component
+
+**Logged**: 2026-06-25T00:23:14+08:00
+**Priority**: high
+**Status**: pending
+**Area**: infra
+
+### Summary
+HBuilderX Android launch reached UTS compile and phone sync, but cameraX runtime failed before DOM creation because the xyc-markvideo component class was missing.
+
+### Error
+```text
+error: java.lang.NoClassDefFoundError: Failed resolution of: Luts/sdk/modules/xycMarkvideo/XycMarkvideoComponent;
+at pages/cameraX/index.uvue:4:6
+<xyc-markvideo
+进入页面: pages/cameraX/index 。[{"创建dom元素个数":"0个", ...}]
+```
+
+### Context
+- Operation: device verification for the CameraX video/photo mode switch thumb width change.
+- Command: `/Applications/HBuilderX.app/Contents/MacOS/cli launch app-android --project /Users/chaixixi/od/uts-markvideo --deviceId ce081718f2646039057e --continue-on-error false --pagePath pages/cameraX/index`
+- The build reached `项目 uts-markvideo UTS编译完毕` and `同步手机端程序文件成功`, but startup failed before the page rendered, so adb screenshots cannot validate the latest capsule geometry from this run.
+
+### Suggested Fix
+Before relying on screenshots after a uvue/component-path change, ensure the xyc-markvideo generated component class is present in the debug base output or force a clean rebuild of the plugin/component cache. Treat screenshots after this failure as stale unless a later launch reaches nonzero DOM creation on `pages/cameraX/index`.
+
+### Metadata
+- Reproducible: unknown
+- Related Files: pages/cameraX/index.uvue, uni_modules/xyc-markvideo/utssdk/app-android/index.vue
+
+---
+
+## [ERR-20260624-001] hbuilderx_uvue_helper_type_annotations
+
+**Logged**: 2026-06-24T16:30:38+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+HBuilderX uni-app x Android compile rejects JS-style top-level helper parameters in `.uvue` UTS scripts.
+
+### Error
+```text
+error: An explicit type is required on a value parameter.
+error: 返回类型不匹配：预期类型为 'Any'，实际类型为 'Any?'。
+```
+
+### Context
+- Command: `/Applications/HBuilderX.app/Contents/MacOS/cli launch app-android --project /Users/chaixixi/od/uts-markvideo --compile true --continue-on-error false`
+- The compile reached real uni-app x page compilation, then failed in `pages/index/index.uvue` and `pages/cameraX/index.uvue`.
+- `function cloneTemplate(template): any` needs an explicit parameter type, and `JSON.parse(...)` must be null-checked before returning as non-null `any`.
+
+### Suggested Fix
+For `.uvue` helper functions, annotate parameters explicitly and normalize nullable parse results before returning them. Keep treating HBuilderX compile as the real UTS syntax gate, not Node structure tests.
+
+### Metadata
+- Reproducible: yes
+- Related Files: pages/index/index.uvue, pages/cameraX/index.uvue, test/structure.test.mjs
+
+---
+
+## [ERR-20260624-002] uvue_structure_tests_stale_untyped_method_regex
+
+**Logged**: 2026-06-24T17:57:16+08:00
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+After adding UTS explicit method parameter types, Node structure tests failed because several regex guards still expected JS-style untyped method signatures.
+
+### Error
+```text
+not ok 11 - cameraX uvue page owns UI and calls xyc-markvideo native camera methods
+The input did not match /setMode\(mode\) \{.../
+not ok 22 - applyWatermarkTemplate body should be inspectable
+not ok 25 - handleWatermarkMoveChange body should be inspectable
+```
+
+### Context
+- Command: `npm test > /tmp/uts-markvideo-npm-test.log 2>&1`
+- Surface: `test/structure.test.mjs`
+- Cause: `.uvue` methods now use signatures like `setMode(mode: string): void`, `applyWatermarkTemplate(template: WatermarkTemplate): void`, and `handleWatermarkMoveChange(event: any | null): void`.
+
+### Suggested Fix
+Keep the behavioral structure guards, but make method-signature regexes accept optional UTS parameter and return types whenever HBuilderX requires typed `.uvue` methods.
+
+### Metadata
+- Reproducible: yes
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+
+---
+
 ## [ERR-20260623-008] codegraph_files_cli_panic
 
 **Logged**: 2026-06-23T22:42:40+08:00
@@ -524,5 +618,322 @@ Android 真机录像开头第一帧被拉长约 1.4 秒，输出仍落在 `480x6
 - **Resolved**: 2026-06-23T23:05:00+08:00
 - **Commit/PR**: pending
 - **Notes**: Recording now uses preview view dimensions with a 960-long-edge/691,200px cap, targets 12-30 Mbps with CBR when supported, skips a 700ms startup warmup window, discards warmup audio reads, and timestamps video from the first encoded frame using real elapsed time.
+
+---
+
+## [ERR-20260624-003] uvue_runtime_class_cast_after_compile
+
+**Logged**: 2026-06-24T19:20:14+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+uni-app x Android compile passed, but phone launch crashed because page code cast storage strings and generated component refs to custom UTS types at runtime.
+
+### Error
+```text
+java.lang.ClassCastException: java.lang.String cannot be cast to UTSJSONObject
+java.lang.ClassCastException: uts.sdk.modules.xycMarkvideo.XycMarkvideoElement cannot be cast to NativeCameraRef
+```
+
+### Context
+- Operation: launched the app on an Android debug base after `项目 uts-markvideo UTS编译完毕`.
+- Surface: `pages/index/index.uvue`, `pages/cameraX/index.uvue`
+- Root cause: `uni.getStorageSync()` may return a serialized string, not a `UTSJSONObject`; `$refs['nativeCamera']` returns the generated `XycMarkvideoElement`, and casting it to a page-local structural type triggers JVM `ClassCastException`.
+
+### Suggested Fix
+Parse storage through a string/object tolerant helper and construct `WatermarkTemplate` field by field. Do not cast component refs to custom page-local types; import the generated UTS component Element type and cast refs to that real runtime type before calling exposed methods.
+
+### Metadata
+- Reproducible: yes
+- Related Files: pages/index/index.uvue, pages/cameraX/index.uvue, test/structure.test.mjs
+
+### Resolution
+- **Resolved**: 2026-06-24T19:20:14+08:00
+- **Commit/PR**: pending
+- **Notes**: Added storage parsing helpers, persisted watermark templates as JSON strings, replaced the runtime `NativeCameraRef` cast with the generated `XycMarkvideoElement` ref type, and added structure-test guards against reintroducing the bad casts.
+
+---
+
+## [ERR-20260624-004] uvue_touch_event_and_haptic_compile_gates
+
+**Logged**: 2026-06-24T19:52:23+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+After the `.uvue` migration compiled once, Android runtime/build logs exposed that touch events and page-level haptics cannot be treated like classic nvue/JS objects.
+
+### Error
+```text
+java.lang.ClassCastException: UniTouchEvent cannot be cast to UTSJSONObject
+error: Unresolved reference ... source[names[i]]
+error: 请检查 uni.vibrateShort 的拼写是否正确，或确认当前 HBuilderX 版本在当前平台是否支持此 API。
+```
+
+### Context
+- Surface: `pages/cameraX/index.uvue`, `uni_modules/xyc-markvideo/utssdk/app-android/index.vue`, `uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt`
+- Root cause: uni-app x touch callbacks receive `UniTouchEvent` / `UniTouch` classes, so casting the event or touches to `UTSJSONObject` can crash or fail compilation. Native/component event shells have the same risk; do not treat a runtime event class as a JSON object. In HBuilderX 5.07, direct page use of `uni.vibrateShort` was rejected during App Android UTS compile even though docs list the API.
+- Fix direction: type touch handlers as `UniTouchEvent`, read `UniTouch.pageX/clientX/screenX/pageY/clientY/screenY` directly, make the `xyc-markvideo` component emit JSON payloads and page handlers receive `UTSJSONObject` payloads, and route page haptic feedback through the generated `xyc-markvideo` native component ref.
+
+### Suggested Fix
+Do not parse `UniTouchEvent`, `UniTouch`, or native/component event shells through JSON/dynamic-object helpers. If a component normalizes native callbacks with `$emit`, type the page handler to the emitted payload instead of the original event shell. Keep native-only feedback behind the UTS component surface, e.g. `nativeCamera.performHapticFeedback(type)`, and verify with HBuilderX compile plus `lastBuild` logs.
+
+### Metadata
+- Reproducible: yes
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs, uni_modules/xyc-markvideo/utssdk/app-android/index.vue, uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt
+
+### Resolution
+- **Resolved**: 2026-06-24T19:52:23+08:00
+- **Commit/PR**: pending
+- **Notes**: Added an independent runtime-cast regression subtest, changed touch helpers to `UniTouchEvent`/`UniTouch`, changed native camera event handlers to receive the component-emitted `UTSJSONObject` payload, added Android native `performHapticFeedback`, removed page-level `uni.vibrateShort`, and verified `npm test` 33/33, `git diff --check`, and HBuilderX `项目 uts-markvideo UTS编译完毕`.
+
+---
+
+## [ERR-20260624-005] structure_test_zoom_assertion_drift
+
+**Logged**: 2026-06-24T21:51:01+08:00
+**Priority**: high
+**Status**: pending
+**Area**: tests
+
+### Summary
+During the flash pre-commit audit, full `structure.test.mjs` verification failed because a zoom queue assertion no longer matches the current `pages/cameraX/index.uvue` implementation.
+
+### Error
+```text
+node --test test/structure.test.mjs
+not ok - cameraX uvue page owns UI and calls xyc-markvideo native camera methods
+The input did not match the regular expression /const targetMode = normalizeUiZoomMode\(mode\)...this.nativeStatus = targetMode === this.zoomMode ? this.zoomModeLabel(targetMode) : '焦段切换中'.../
+```
+
+### Context
+- Operation: flash fix pre-commit audit and verification.
+- Surface: `test/structure.test.mjs`, `pages/cameraX/index.uvue`
+- The flash-specific Android native view subtest passes, but the full structure suite fails before commit readiness because the test still expects an older zoom pending/status flow.
+- `npm test -- test/structure.test.mjs` is not a narrow structure-only command in this repo; it expands through the script to `node --test test/*.test.mjs test/structure.test.mjs`.
+
+### Suggested Fix
+Align the zoom queue assertions with the current `setZoomMode()` behavior, or intentionally restore the expected status behavior in `pages/cameraX/index.uvue` if the test describes the desired product contract. Keep flash-only staging patch-level until this unrelated test drift is resolved.
+
+### Metadata
+- Reproducible: yes
+- Related Files: test/structure.test.mjs, pages/cameraX/index.uvue
+
+### Follow-up
+- **Seen Again**: 2026-06-24T21:54:54+08:00
+- **Context**: Video/photo mode switch slider pre-commit audit again produced `npm test` 32/33 with the same failing zoom queue assertion at `test/structure.test.mjs:703`; mode-switch-specific checks passed.
+
+---
+
+## [ERR-20260624-006] hbuilderx_run_state_and_incomplete_app_android_cache
+
+**Logged**: 2026-06-24T22:23:44+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: infra
+
+### Summary
+HBuilderX App Android verification became blocked by stale run services and then an incomplete `.app-android` generated cache.
+
+### Error
+```text
+运行状态错误，请重试
+error: Source file or directory not found: /Users/chaixixi/od/uts-markvideo/unpackage/cache/.app-android/src/index.kt
+error: Source file or directory not found: /Users/chaixixi/od/uts-markvideo/unpackage/cache/.app-android/src/pages/cameraX/index.kt
+error: Source file or directory not found: /Users/chaixixi/od/uts-markvideo/unpackage/cache/.app-android/src/pages/index/index.kt
+```
+
+### Context
+- Operation: commit-prep verification after cameraX zoom/layout fixes.
+- First, `cli launch app-android --compile true` returned `运行状态错误，请重试` while old `uniapp-cli-vite -p app`, Java UTS compiler, and many launcher `httpServer.js` processes were still alive.
+- After terminating stale HBuilderX run child processes but leaving the HBuilderX main process alive, compile entered normal work but failed because `unpackage/cache/.app-android/src` generated Kotlin files were missing.
+- A separate HBuilderX run process later appeared for `--pagePath pages/cameraX/index`, so IDE-side run state may still be rebuilding asynchronously.
+
+### Suggested Fix
+Before final device verification, let any active HBuilderX run process finish or restart HBuilderX cleanly, then rebuild the uni-app x Android cache from a clean run. Do not claim final device verification from screenshots taken before the latest code has been rebuilt and installed.
+
+### Metadata
+- Reproducible: unknown
+- Related Files: pages/cameraX/index.uvue, uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt, test/structure.test.mjs
+
+### Resolution
+- **Resolved**: 2026-06-24T23:00:09+08:00
+- **Commit/PR**: pending
+- **Notes**: Let the active HBuilderX build finish, then reran `cli launch app-android --project /Users/chaixixi/od/uts-markvideo --deviceId ce081718f2646039057e --continue-on-error false --pagePath pages/cameraX/index`. The build reached `项目 uts-markvideo UTS编译完毕`, synced files, and launched `pages/cameraX/index`.
+
+---
+
+## [ERR-20260624-007] structure_test_camera_mainline_drift
+
+**Logged**: 2026-06-24T15:31:38Z
+**Priority**: medium
+**Status**: pending
+**Area**: tests
+
+### Summary
+Full `npm test` failed during focal-length linkage verification because `test/structure.test.mjs` still had stale assertions for older cameraX watermark and Android preview implementations.
+
+### Error
+```text
+npm test
+not ok - cameraX uvue page owns UI and calls xyc-markvideo native camera methods
+Expected old watermark/movable-area and SurfaceView/PixelCopy patterns that no longer match current .uvue and TextureView code.
+```
+
+### Context
+- Operation: commit-prep verification after fixing zoom selected-state fallback.
+- Current source uses a normal `view.watermarkLayer` with page touch math, and Android preview uses `TextureView.SurfaceTextureListener` plus `previewView.getBitmap`.
+- The failing assertions were unrelated to the focal-length item linkage, but blocked the full repository test suite.
+
+### Suggested Fix
+Keep structure tests aligned with the current active mainline when `.uvue`/native camera implementation changes, and prefer narrow behavior assertions around the regression being fixed.
+
+### Metadata
+- Reproducible: yes
+- Related Files: test/structure.test.mjs, pages/cameraX/index.uvue, uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt
+
+### Resolution
+- **Resolved**: 2026-06-24T15:42:00Z
+- **Commit/PR**: pending
+- **Notes**: Updated `test/structure.test.mjs` to track the current `.uvue` camera mainline and TextureView preview implementation. Full `npm test` now passes 35/35 after the focal-length selected-state regression fix.
+
+---
+
+## [ERR-20260624-008] zsh_status_variable_and_exa_key_missing
+
+**Logged**: 2026-06-24T15:34:20Z
+**Priority**: low
+**Status**: pending
+**Area**: infra
+
+### Summary
+Two verification helper commands failed for tooling reasons unrelated to the mode switch code.
+
+### Error
+```text
+zsh:1: read-only variable: status
+web_search_exa error (401): API key must be provided as an argument or as an environment variable (EXA_API_KEY)
+```
+
+### Context
+- Operation: video/photo segmented-control visual fix verification.
+- The first failure came from using `status` as a shell variable name in zsh while combining `git diff --check` commands.
+- The second failure came from trying to use Exa web search for Apple segmented-control references without an Exa API key configured.
+- The whitespace checks were rerun with non-conflicting variable names and passed.
+
+### Suggested Fix
+Use variable names like `rc1`/`rc2` in zsh helper commands. Treat Exa as optional unless `EXA_API_KEY` is configured; use official docs or Context7 where available.
+
+### Metadata
+- Reproducible: yes
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+
+---
+
+## [ERR-20260624-009] structure_test_layout_contract_stale
+
+**Logged**: 2026-06-24T23:56:00+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+After tightening the cameraX top and bottom layout constants, the first `npm test` rerun failed because structure tests still asserted the previous layout contract.
+
+### Error
+```text
+npm test
+not ok - cameraX uvue page owns UI and calls xyc-markvideo native camera methods
+Expected /const CAMERA_TOP_BAR_HEIGHT = 64/ after source had moved to 60.
+not ok - camera viewport keeps a full-width 3:4 area below the top controls
+Expected old bottom panel heights after top bar height changed.
+```
+
+### Context
+- Operation: cameraX layout tightening before device verification.
+- Source changed intentionally: top bar height moved from 64 to 60, bottom main controls use a min/max top clamp.
+- The test failure was useful: it prevented claiming the new layout until the structural contract was updated.
+
+### Suggested Fix
+When layout constants are part of the behavior contract, update tests to assert the new constants and the formula that prevents high-screen bottom whitespace from expanding unchecked.
+
+### Metadata
+- Reproducible: yes
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+
+### Resolution
+- **Resolved**: 2026-06-24T23:58:00+08:00
+- **Commit/PR**: pending
+- **Notes**: Updated `test/structure.test.mjs` to assert top bar 60, top control offsets 16, bottom control min/max clamp, and new remaining-panel heights. `npm test` now passes 35/35.
+
+---
+
+## [ERR-20260625-002] android_muxer_stop_audio_pts_regression
+
+**Logged**: 2026-06-25T00:42:00+08:00
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+N9500 录像停止失败的直接原因是音频 track 写入 MediaMuxer 的时间戳回退，触发 `MediaMuxer.stop()` invalid state。
+
+### Error
+```text
+MPEG4Writer: do not support out of order frames (timestamp: 5989216 < last: 5995357 for Audio track
+MediaMuxer: stop() is called in invalid state 3
+XycMarkVideo: record stop failed during finish: stage=muxer_stop; frames=80; videoSamples=80; audioSamples=260
+```
+
+### Context
+- Operation: 用户反馈“现在录像停止失败”后拉取 SM-N9500 / Android 9 logcat。
+- The stop path did write media samples: video had 80 encoded samples and audio had 260 samples, so this was not a zero-frame or missing-permission failure.
+- Root cause candidate: audio sample PTS currently comes from wall-clock `audioPresentationTimeUs()` and is written without a per-track monotonic clamp, unlike video PTS which is guarded by `lastVideoPresentationTimeUs`.
+
+### Suggested Fix
+Track the last written audio presentation timestamp and clamp audio muxer writes to a strictly increasing value before `writeSampleData`. Keep the muxer stop diagnostics because it exposed the real failing track.
+
+### Metadata
+- Reproducible: yes
+- Related Files: uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt
+- See Also: ERR-20260623-007
+
+---
+
+## [ERR-20260625-003] bottom_panel_style_regex_overmatch
+
+**Logged**: 2026-06-25T01:07:46+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+The first regression guard for the cameraX bottom panel color failed because a broad regex crossed into later style blocks containing unrelated `rgba(...)` values.
+
+### Error
+```text
+npm test
+not ok - cameraX uvue page owns UI and calls xyc-markvideo native camera methods
+Expected source not to match /\.bottomPanel \{[\s\S]*background-color: rgba/
+```
+
+### Context
+- Operation: adding a guard that `.bottomPanel` stays opaque while fixing Android bottom system navigation color mismatch.
+- The source was already `background-color: #e2e6e4;` inside `.bottomPanel`, but the greedy pattern continued past `.modeSwitchWrap` into later controls that legitimately use semi-transparent white backgrounds.
+
+### Suggested Fix
+For style-block assertions, extract the selector block with `findStyleBlock(page, '.selector')` before checking presence or absence of declarations. Do not run negative `[\s\S]*` regexes across an entire `.uvue` source when later selectors may contain valid matches.
+
+### Metadata
+- Reproducible: yes
+- Related Files: test/structure.test.mjs, pages/cameraX/index.uvue
+
+### Resolution
+- **Resolved**: 2026-06-25T01:07:46+08:00
+- **Commit/PR**: pending
+- **Notes**: Scoped the assertions to `findStyleBlock(page, '.bottomPanel')` and reran the test suite.
 
 ---

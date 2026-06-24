@@ -34,7 +34,7 @@
       },
       statusText: {
         type: String,
-        default: 'XYC native camera preview'
+        default: ''
       }
     },
     data() {
@@ -62,14 +62,15 @@
       },
       targetFps: {
         handler(newValue : number, oldValue : number) {
-          if (newValue != oldValue && this.cameraView != null) {
-            this.cameraView!.setTargetFps(newValue.toInt());
+          const view = this.resolveCameraView();
+          if (newValue != oldValue && view != null) {
+            view.setTargetFps(newValue.toInt());
           }
         },
         immediate: false
       }
     },
-    expose: ['setStatus', 'switchMode', 'setFlashMode', 'setZoomMode', 'switchCamera', 'setCameraSoundEnabled', 'setWatermark', 'clearWatermark', 'takePhoto', 'startRecord', 'stopRecord', 'openSystemAlbum', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
+    expose: ['setStatus', 'switchMode', 'setFlashMode', 'setZoomMode', 'switchCamera', 'setCameraSoundEnabled', 'performHapticFeedback', 'setWatermark', 'clearWatermark', 'takePhoto', 'startRecord', 'stopRecord', 'openSystemAlbum', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
     methods: {
       emitNativeEvent(eventName : string, payload : any) {
         if (eventName == 'cameraready') {
@@ -162,6 +163,13 @@
           return nativeViewUnavailable();
         }
         return view.setCameraSoundEnabled(enabled);
+      },
+      performHapticFeedback(type : string = 'light') : string {
+        const view = this.requireCameraView();
+        if (view == null) {
+          return nativeViewUnavailable();
+        }
+        return view.performHapticFeedback(type);
       },
       setWatermark(template : any) : string {
         const view = this.requireCameraView();

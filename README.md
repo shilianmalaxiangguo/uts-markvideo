@@ -5,8 +5,8 @@
 ## 当前工作流
 
 - 只在 `/Users/chaixixi/od/uts-markvideo` 这个目录继续开发。
-- 当前开发分支是 `markvideo-mvp`。
-- 目前只保留 `dev`、`markvideo-mvp`、`markvideo-plugin` 三个短分支；这三个分支都从 iOS 分支基线创建。
+- 当前开发分支是 `markvideo-mvp-uvue`。
+- 目前常用短分支是 `dev`、`markvideo-mvp`、`markvideo-mvp-uvue`、`markvideo-plugin`；这些分支都从 iOS 分支基线创建。
 - 不再继续在 `/Users/chaixixi/od/uts-markvideo-android` 做功能开发；旧目录已移到 `/Users/chaixixi/od/uts-markvideo-android.backup`，只用于恢复旧 stash 或历史参考。
 - MVP 阶段的活跃实现已经切到 `uni_modules/xyc-markvideo`。
 - 旧 `uni_modules/uts-markvideo`、`pages/index/index.vue`、`pages/camera/camera.vue` 路线已经废弃，不要恢复。
@@ -28,7 +28,7 @@
 ## 运行方式
 
 1. 用 HBuilderX 打开 `/Users/chaixixi/od/uts-markvideo`。
-2. 确认当前分支是 `markvideo-mvp`。
+2. 确认当前分支是 `markvideo-mvp-uvue`。
 3. 运行到 Android App。
 4. 在首页打开水印设置，选择纯文字、纯图片或图文模板。
 5. 进入 `cameraX` 相机业务页。
@@ -38,8 +38,9 @@
 ## 重要路径
 
 - `pages.json` - 页面入口配置。
-- `pages/index/index.nvue` - 首页，负责选择水印模板并进入相机流程。
-- `pages/cameraX/index.nvue` - 当前相机业务页，负责 UI、权限触发、闪光灯、拍照/录像按钮和水印交互。
+- `App.uvue` / `main.uts` - uni-app x 应用入口。
+- `pages/index/index.uvue` - 首页，负责选择水印模板并进入相机流程。
+- `pages/cameraX/index.uvue` - 当前相机业务页，负责 UI、权限触发、闪光灯、拍照/录像按钮和水印交互。
 - `camera-prototype.html` - 原型参考，不是运行时代码。
 - `docs/watermark-template-camera-prd.md` - 当前 Android 水印模板相机阶段 PRD。
 - `docs/embedded-camera-component-prd.md` - 嵌入式水印相机组件的跨端长期合同。
@@ -52,7 +53,8 @@
 ## 分支约定
 
 - `dev`：阶段性集成分支。
-- `markvideo-mvp`：当前 MVP 主开发分支。
+- `markvideo-mvp`：当前 MVP 基线分支。
+- `markvideo-mvp-uvue`：从 `markvideo-mvp` 拆出的 uni-app x / `.uvue` 迁移分支，先保持 Android 闭环，iOS 后续补齐。
 - `markvideo-plugin`：MVP 稳定后再抽取 `uni_modules/xyc-markvideo` 的插件化分支。
 - 旧 `ios`、`android`、`android-sn9500` 分支只作为历史参考，不再作为当前主开发入口。
 
