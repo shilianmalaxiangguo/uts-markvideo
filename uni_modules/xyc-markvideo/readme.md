@@ -12,7 +12,7 @@
 - Android 权限由项目根 `manifest.json` 统一声明，插件侧不再携带 `utssdk/app-android/AndroidManifest.xml`，避免标准基座把插件识别为依赖额外原生配置。
 - 组件名：`xyc-markvideo`。
 - 事件：`nativeviewready`、`cameraready`、`nativeerror`、`photodone`、`recordstart`、`recorddone`、`flashchange`、`zoomchange`、`camerachange`。
-- 暴露方法：`setStatus(text)`、`switchMode(mode)`、`setFlashMode(mode)`、`setZoomMode(mode)`、`switchCamera()`、`setCameraSoundEnabled(enabled)`、`performHapticFeedback(type)`、`setWatermark(template)`、`clearWatermark()`、`takePhoto()`、`startRecord(options)`、`stopRecord()`、`openSystemAlbum(mediaUri)`、`restartCamera()`、`preparePermissions()`、`prepareRecordPermissions()`、`destroyCamera()`。
+- 暴露方法：`setStatus(text)`、`switchMode(mode)`、`setFlashMode(mode)`、`setZoomMode(mode)`、`switchCamera()`、`setCameraSoundEnabled(enabled)`、`performHapticFeedback(type)`、`setWatermark(template)`、`clearWatermark()`、`takePhoto()`、`startRecord(options)`、`stopRecord()`、`openSystemAlbum(mediaUri)`、`restartCamera()`、`preparePermissions()`、`prepareRecordPermissions()`、`checkRecordPermissions()`、`destroyCamera()`。
 
 ### 开发文档
 [UTS 语法](https://uniapp.dcloud.net.cn/tutorial/syntax-uts.html)

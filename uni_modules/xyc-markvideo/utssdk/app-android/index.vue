@@ -70,7 +70,7 @@
         immediate: false
       }
     },
-    expose: ['setStatus', 'switchMode', 'setFlashMode', 'setZoomMode', 'switchCamera', 'setCameraSoundEnabled', 'performHapticFeedback', 'setWatermark', 'clearWatermark', 'takePhoto', 'startRecord', 'stopRecord', 'openSystemAlbum', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'destroyCamera'],
+    expose: ['setStatus', 'switchMode', 'setFlashMode', 'setZoomMode', 'switchCamera', 'setCameraSoundEnabled', 'performHapticFeedback', 'setWatermark', 'clearWatermark', 'takePhoto', 'startRecord', 'stopRecord', 'openSystemAlbum', 'restartCamera', 'preparePermissions', 'prepareRecordPermissions', 'checkRecordPermissions', 'destroyCamera'],
     methods: {
       emitNativeEvent(eventName : string, payload : any) {
         if (eventName == 'cameraready') {
@@ -233,6 +233,13 @@
           return nativeViewUnavailable();
         }
         return view.prepareRecordPermissions();
+      },
+      checkRecordPermissions() : string {
+        const view = this.requireCameraView();
+        if (view == null) {
+          return nativeViewUnavailable();
+        }
+        return view.checkRecordPermissions();
       },
       destroyCamera() : string {
         const view = this.resolveCameraView();

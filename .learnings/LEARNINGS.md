@@ -6,6 +6,69 @@ Corrections, insights, and knowledge gaps captured during development.
 
 ---
 
+## [LRN-20260625-C12] correction
+
+**Logged**: 2026-06-25T13:28:00+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 相机预览空隙要先用红框区分页面 4:3 容器、topBar 真实高度和原生组件实际边界。
+
+### Details
+用户指出“debug 红框相机边框看下问题，上面还是有空隙”。上一轮只把 `CAMERA_TOP_BAR_HEIGHT` 从 60 改到 70，但 `.topBar` 样式仍是 `height: 60px`，导致 10px 变成灰色顶栏和相机之间的真实空隙。恢复 `cameraDebugBorder` 后，第一张真机截图还暴露出原生组件左侧露白，说明 native component 动态定位也要把 `position:absolute` 放进同一条 `cameraViewportStyleText`，不能只依赖 class 样式和动态 left/top 合并。
+
+### Suggested Action
+后续处理 CameraX 画幅、safe area、topBar 或 bottomPanel 视觉问题时，先打开 `cameraDebugBorder` 真机截图，确认红框是否贴住 topBar/bottomPanel，再判断是否需要动原生预览内部变换。调整顶部高度必须同步 `CAMERA_TOP_BAR_HEIGHT`、`.topBar height` 和结构测试；给 `<xyc-markvideo>` 这类原生组件定位时，把 `position:absolute` 放进动态 style 字符串以避免 class/style 合并差异。
+
+### Metadata
+- Source: user_feedback, device_screenshot_debugging
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, safe-area, debug-border, native-component-layout, uvue
+- Pattern-Key: uts_markvideo.camera_viewport_debug_border_first
+- Recurrence-Count: 1
+- First-Seen: 2026-06-25
+- Last-Seen: 2026-06-25
+
+### Resolution
+- **Resolved**: 2026-06-25T13:28:00+08:00
+- **Commit/PR**: pending
+- **Notes**: Restored `cameraDebugBorder`, synchronized `.topBar height` with `CAMERA_TOP_BAR_HEIGHT`, moved `position:absolute` into `cameraViewportStyleText`, and verified on SM-N9500 screenshot that the red 4:3 frame is flush under the top bar with no left-side page gap. `npm test` passed 36/36 and `git diff --check` passed.
+
+---
+
+## [LRN-20260625-C13] correction
+
+**Logged**: 2026-06-25T15:00:00+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+CameraX 顶部胶囊偏上时，优先调顶栏内部绝对定位点，不要先加大整页顶栏高度。
+
+### Details
+客户图和当前真机对比后，问题不是单纯 `topBar` 不够高，而是 back/flash/switch 这几个胶囊在顶栏里的 `top` 还偏紧，导致视觉上贴近状态栏。把胶囊整体下移到更接近顶栏中线的位置，比继续拉大 `topBar` 更符合现有布局节奏，也更容易保持 4:3 预览和底部控制区的比例关系。
+
+### Suggested Action
+后续处理 CameraX 顶部对齐时，先调整 `.topSide` / `.topTitleBox` / `.topRightSide` 的内部 `top`，再考虑是否需要改 `CAMERA_TOP_BAR_HEIGHT` 或 `recordHud`。真机判断时优先看胶囊相对顶栏中线的位置，而不是只看顶栏外框高度。
+
+### Metadata
+- Source: user_feedback
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+- Tags: cameraX, topbar, safe-area, layout, uvue
+- Pattern-Key: uts_markvideo.topbar_inner_absolute_offset_first
+- Recurrence-Count: 1
+- First-Seen: 2026-06-25
+- Last-Seen: 2026-06-25
+
+### Resolution
+- **Resolved**: 2026-06-25T15:00:00+08:00
+- **Commit/PR**: pending
+- **Notes**: Moved `.topSide`, `.topTitleBox`, and `.topRightSide` from `top: 23px` to `top: 32px` and updated structure-test assertions accordingly.
+
+---
 ## [LRN-20260625-C03] correction
 
 **Logged**: 2026-06-25T00:23:47+08:00

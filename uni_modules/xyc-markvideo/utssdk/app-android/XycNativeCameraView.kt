@@ -104,7 +104,6 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
     private var videoOutputTarget: VideoOutputTarget? = null
     private var lastPublishedMediaUri = ""
     private var lastPublishedMediaKind = ""
-    private var lastPublishedAlbumUri = ""
     private var cameraPermissionRequested = false
     private var cameraPermissionRetryCount = 0
     private var recordPermissionRequested = false
@@ -417,12 +416,27 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
                     "Missing permissions: ${missingPermissions.joinToString(",")}"
                 )
             }
-            recordPermissionRequested = false
-            recordPermissionRetryCount = 0
+            clearRecordPermissionRequestState()
             if (previewReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
                 openCameraIfReady()
             }
             ok(payload().put("message", "录像权限已准备"))
+        }
+    }
+
+    fun checkRecordPermissions(): String {
+        return runOnMainSync {
+            val missingPermissions = recordMissingPermissions()
+            if (missingPermissions.isEmpty()) {
+                return@runOnMainSync ok(payload().put("message", "录像权限已准备"))
+            }
+            payload()
+                .put("success", false)
+                .put("errorCode", "1003")
+                .put("errorMessage", recordPermissionMessage(missingPermissions))
+                .put("nativeMessage", "Missing permissions: ${missingPermissions.joinToString(",")}")
+                .put("data", payload())
+                .toString()
         }
     }
 
@@ -797,19 +811,24 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
 
     fun openSystemAlbum(mediaUri: String): String {
         return runOnMainSync {
-            val targetUri = albumOpenUri(mediaUri)
-            val intent = Intent(Intent.ACTION_VIEW, targetUri)
-                .setDataAndType(targetUri, albumOpenMimeType(mediaUri))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val mimeType = albumOpenMimeType(mediaUri)
+            var lastError: Throwable? = null
             try {
-                context.startActivity(intent)
-                ok(payload()
-                    .put("message", "已打开系统相册")
-                    .put("albumUri", targetUri.toString())
-                    .put("mediaKind", if (lastPublishedMediaKind.isBlank()) "album" else lastPublishedMediaKind))
+                for (intent in albumOpenIntents(mimeType)) {
+                    try {
+                        context.startActivity(intent)
+                        return@runOnMainSync ok(payload()
+                            .put("message", "已打开系统相册")
+                            .put("albumUri", mediaCollectionUri(mimeType).toString())
+                            .put("mediaKind", if (lastPublishedMediaKind.isBlank()) "album" else lastPublishedMediaKind))
+                    } catch (throwable: Throwable) {
+                        lastError = throwable
+                    }
+                }
+                failAndEmit("1601", "打开系统相册失败", "No album activity found.")
             } catch (throwable: Throwable) {
-                failAndEmit("1601", "打开系统相册失败", throwable.message ?: throwable.javaClass.simpleName)
+                val cause = lastError ?: throwable
+                failAndEmit("1601", "打开系统相册失败", cause.message ?: cause.javaClass.simpleName)
             }
         }
     }
@@ -837,16 +856,18 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
         if (hasWindowFocus) {
             lockHostActivityToPortrait()
         }
-        if (hasWindowFocus && recordPermissionRequested && recordMissingPermissions().isEmpty()) {
-            recordPermissionRequested = false
-            recordPermissionRetryCount = 0
-            if (camera != null) {
-                closeCamera()
-            }
-            if (previewReady && hasPermission(Manifest.permission.CAMERA)) {
-                openCameraIfReady()
-            } else {
-                setStatus("录像权限已准备")
+        if (hasWindowFocus && recordPermissionRequested) {
+            val missingPermissions = recordMissingPermissions()
+            clearRecordPermissionRequestState()
+            if (missingPermissions.isEmpty()) {
+                if (camera != null) {
+                    closeCamera()
+                }
+                if (previewReady && hasPermission(Manifest.permission.CAMERA)) {
+                    openCameraIfReady()
+                } else {
+                    setStatus("录像权限已准备")
+                }
             }
             return
         }
@@ -2642,20 +2663,25 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
             .put("height", height)
     }
 
-    private fun albumOpenUri(mediaUri: String): Uri {
-        val preferredUri = mediaUri.takeIf { it.isNotBlank() } ?: lastPublishedAlbumUri
-        if (preferredUri.isNotBlank()) {
-            if (preferredUri.startsWith("content://") || preferredUri.startsWith("file://")) {
-                return Uri.parse(preferredUri)
-            } else {
-                return mediaCollectionUri()
-            }
-        }
-        return mediaCollectionUri()
+    private fun albumOpenIntents(mimeType: String): ArrayList<Intent> {
+        val collectionUri = mediaCollectionUri(mimeType)
+        val intents = ArrayList<Intent>()
+        intents.add(Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_APP_GALLERY)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        intents.add(Intent(Intent.ACTION_PICK)
+            .setDataAndType(collectionUri, mimeType)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        intents.add(Intent(Intent.ACTION_VIEW)
+            .setDataAndType(collectionUri, mimeType)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        return intents
     }
 
-    private fun mediaCollectionUri(): Uri {
-        return if (lastPublishedMediaKind == "video") {
+    private fun mediaCollectionUri(mimeType: String): Uri {
+        return if (lastPublishedMediaKind == "video" || mimeType.startsWith("video/")) {
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         } else {
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI
@@ -2754,7 +2780,6 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
     private fun rememberPublishedMedia(albumResult: AlbumSaveResult, kind: String) {
         lastPublishedMediaUri = albumResult.albumUri
         lastPublishedMediaKind = kind
-        lastPublishedAlbumUri = if (albumResult.albumUri.isNotBlank()) albumResult.albumUri else albumResult.albumPath
     }
 
     private fun appendRecordTiming(
@@ -3062,8 +3087,7 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
                     return
                 }
                 if (recordMissingPermissions().isEmpty()) {
-                    recordPermissionRequested = false
-                    recordPermissionRetryCount = 0
+                    clearRecordPermissionRequestState()
                     if (previewReady && camera == null && hasPermission(Manifest.permission.CAMERA)) {
                         openCameraIfReady()
                     } else {
@@ -3074,10 +3098,17 @@ class XycNativeCameraView(context: Context) : FrameLayout(context), TextureView.
                 recordPermissionRetryCount += 1
                 if (recordPermissionRetryCount < CAMERA_PERMISSION_RETRY_LIMIT) {
                     scheduleRecordPermissionRetry()
+                    return
                 }
+                clearRecordPermissionRequestState()
             }
         }
         mainHandler.postDelayed(retryRunnable, CAMERA_PERMISSION_RETRY_DELAY_MS)
+    }
+
+    private fun clearRecordPermissionRequestState() {
+        recordPermissionRequested = false
+        recordPermissionRetryCount = 0
     }
 
     private fun hasPermission(permission: String): Boolean {

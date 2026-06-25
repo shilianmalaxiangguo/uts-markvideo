@@ -294,7 +294,7 @@ const WATERMARK_TRACE_LOG = false
 const RECORD_STOP_TIMEOUT_MS = 12000
 const PORTRAIT_LAYOUT_FALLBACK_WIDTH = 375
 const PORTRAIT_LAYOUT_FALLBACK_HEIGHT = 812
-const CAMERA_TOP_BAR_HEIGHT = 60
+const CAMERA_TOP_BAR_HEIGHT = 88
 const CAMERA_MODE_SWITCH_HEIGHT = 36
 const CAMERA_MAIN_CONTROLS_HEIGHT = 88
 const CAMERA_CONTROLS_REGULAR_TOP = 8
@@ -708,7 +708,7 @@ export default {
     },
     cameraViewportStyleText() {
       const viewport = this.cameraViewportBounds()
-      return 'left:' + Math.round(viewport.left) + 'px;top:' + Math.round(viewport.top) + 'px;width:' + Math.round(viewport.width) + 'px;height:' + Math.round(viewport.height) + 'px;'
+      return 'position:absolute;left:' + Math.round(viewport.left) + 'px;top:' + Math.round(viewport.top) + 'px;width:' + Math.round(viewport.width) + 'px;height:' + Math.round(viewport.height) + 'px;'
     },
     bottomPanelStyle() {
       const panel = this.cameraBottomPanelBounds()
@@ -932,6 +932,7 @@ export default {
     this.restoreWatermarkFromStorage()
   },
   onShow() {
+    this.refreshCameraLayoutBounds()
     if (this.nativeReady) {
       setTimeout(() => {
         this.prepareCameraPermissions()
@@ -1314,6 +1315,7 @@ export default {
       return false
     },
     handleNativeReady() {
+      this.refreshCameraLayoutBounds()
       this.nativeReady = true
       this.nativeStatus = '相机组件已加载'
       setTimeout(() => {
@@ -2992,27 +2994,7 @@ export default {
         }
         this.recordStartAfterPermission = false
         this.clearRecordPermissionRetry()
-        if (this.activeWatermark != null && !await this.flushWatermarkSync(true)) {
-          return
-        }
-        this.recordStartPending = true
-        this.startRecordPendingTimeout()
-        const recordResponse = await nativeCamera.startRecord({ fps: this.targetFps })
-        const result = await this.normalizeNativeCommandReturn(recordResponse, '录像开始失败', '录像启动中', ['10', '11', '14'])
-        if (result.success) {
-          if (!this.isRecording && !this.nativeReturnIsEmpty(recordResponse)) {
-            this.startRecordingClock()
-            this.isRecording = true
-            this.clearRecordStartPendingTimer()
-            this.recordStartPending = false
-          }
-          this.nativeStatus = this.nativeReturnIsEmpty(recordResponse) ? '录像启动中' : '录像中'
-        } else {
-          this.stopRecordingClock()
-          this.clearRecordStartPendingTimer()
-          this.recordStartPending = false
-          this.nativeStatus = safeString(result.errorMessage, '录像开始失败')
-        }
+        await this.startRecordWithReadyPermissions(nativeCamera)
         return
       }
 
@@ -3140,29 +3122,27 @@ export default {
           return
         }
         this.recordPermissionRetryCount += 1
-        this.prepareRecordPermissions(true).then((ready: boolean) => {
-          if (ready) {
-            this.clearRecordPermissionRetry()
-            this.recordStartAfterPermission = false
-            this.retryCameraAfterPermission()
-            this.nativeStatus = '录像权限已准备，正在开始录像'
-            this.clearRecordStartRetry()
-            this.recordStartRetryTimer = setTimeout(() => {
-              this.recordStartRetryTimer = null
-              if (!this.isRecording && !this.stopPending && !this.recordStartAfterPermission && this.mode === 'video') {
-                this.pressShutter()
-              }
-            }, 180)
-            return
-          }
-          if (this.recordPermissionRetryCount < 80) {
-            this.scheduleRecordPermissionRetry()
-            return
-          }
+        if (this.checkRecordPermissions()) {
           this.clearRecordPermissionRetry()
           this.recordStartAfterPermission = false
-          this.nativeStatus = '请先完成录像权限授权'
-        })
+          this.retryCameraAfterPermission()
+          this.nativeStatus = '录像权限已准备，正在开始录像'
+          this.clearRecordStartRetry()
+          this.recordStartRetryTimer = setTimeout(() => {
+            this.recordStartRetryTimer = null
+            if (!this.isRecording && !this.stopPending && !this.recordStartAfterPermission && this.mode === 'video') {
+              this.startRecordWithReadyPermissions(nativeCamera)
+            }
+          }, 180)
+          return
+        }
+        if (this.recordPermissionRetryCount < 80) {
+          this.scheduleRecordPermissionRetry()
+          return
+        }
+        this.clearRecordPermissionRetry()
+        this.recordStartAfterPermission = false
+        this.nativeStatus = '请先完成录像权限授权'
       }, 350)
     },
     prepareCameraPermissions() {
@@ -3177,24 +3157,65 @@ export default {
       }
       return false
     },
-    async prepareRecordPermissions(silent: boolean = false): Promise<boolean> {
+    checkRecordPermissions(): boolean {
+      const nativeCamera = this.resolveNativeCamera()
+      if (nativeCamera != null) {
+        const result = this.normalizeNativeResult(nativeCamera.checkRecordPermissions(), '请先完成录像权限授权')
+        if (result.success) {
+          this.clearRecordPermissionRetry()
+          return true
+        }
+      }
+      return false
+    },
+    refreshCameraLayoutBounds() {
+      const screen = resolveScreenBounds()
+      const nextWidth = screen.width as number
+      const nextHeight = screen.height as number
+      if (nextWidth != this.screenWidth || nextHeight != this.previewHeight) {
+        this.screenWidth = nextWidth
+        this.previewHeight = nextHeight
+      }
+    },
+    async prepareRecordPermissions(): Promise<boolean> {
       const nativeCamera = this.resolveNativeCamera()
       if (nativeCamera != null) {
         const result = await this.normalizeNativeCommandReturn(nativeCamera.prepareRecordPermissions(), '请先完成录像权限授权', '录像权限已准备', ['10'])
         if (result.success) {
           this.clearRecordPermissionRetry()
           const message = result.data != null ? safeString(result.data['message'], '') : ''
-          if (hasText(message) && !silent) {
+          if (hasText(message)) {
             this.nativeStatus = message
           }
           return true
         }
-        if (!silent) {
-          this.nativeStatus = safeString(result.errorMessage, '请先完成录像权限授权')
-        }
+        this.nativeStatus = safeString(result.errorMessage, '请先完成录像权限授权')
         return false
       }
-      return this.prepareCameraPermissions()
+      return false
+    },
+    async startRecordWithReadyPermissions(nativeCamera: XycMarkvideoElement): Promise<void> {
+      if (this.activeWatermark != null && !await this.flushWatermarkSync(true)) {
+        return
+      }
+      this.recordStartPending = true
+      this.startRecordPendingTimeout()
+      const recordResponse = await nativeCamera.startRecord({ fps: this.targetFps })
+      const result = await this.normalizeNativeCommandReturn(recordResponse, '录像开始失败', '录像启动中', ['10', '11', '14'])
+      if (result.success) {
+        if (!this.isRecording && !this.nativeReturnIsEmpty(recordResponse)) {
+          this.startRecordingClock()
+          this.isRecording = true
+          this.clearRecordStartPendingTimer()
+          this.recordStartPending = false
+        }
+        this.nativeStatus = this.nativeReturnIsEmpty(recordResponse) ? '录像启动中' : '录像中'
+      } else {
+        this.stopRecordingClock()
+        this.clearRecordStartPendingTimer()
+        this.recordStartPending = false
+        this.nativeStatus = safeString(result.errorMessage, '录像开始失败')
+      }
     },
     retryCameraAfterPermission() {
       if (this.isRecording || this.stopPending) {
@@ -3215,12 +3236,12 @@ function resolveScreenBounds(): ScreenBounds {
   try {
     const info = uni.getSystemInfoSync()
     const windowHeight = safeNumber(info.windowHeight, PORTRAIT_LAYOUT_FALLBACK_HEIGHT)
-    const screenHeight = safeNumber(info.screenHeight, windowHeight)
     const safeArea = info.safeArea
     const safeAreaBottom = safeArea != null ? safeNumber(safeArea.bottom, windowHeight) : windowHeight
+    const usableHeight = Math.min(windowHeight, safeAreaBottom)
     const bounds = normalizePortraitLayoutBounds(
       safeNumber(info.windowWidth, PORTRAIT_LAYOUT_FALLBACK_WIDTH),
-      Math.max(windowHeight, screenHeight, safeAreaBottom)
+      Math.max(1, usableHeight)
     )
     return bounds
   } catch (_) {
@@ -3853,8 +3874,8 @@ function roundWatermarkPx(value: number): number {
   left: 0;
   right: 0;
   top: 0;
-  height: 60px;
-  padding-top: 16px;
+  height: 88px;
+  padding-top: 23px;
   padding-left: 14px;
   padding-right: 14px;
   flex-direction: row;
@@ -3866,7 +3887,7 @@ function roundWatermarkPx(value: number): number {
 .topSide {
   position: absolute;
   left: 14px;
-  top: 16px;
+  top: 36px;
   width: 64px;
   height: 42px;
   align-items: center;
@@ -3899,7 +3920,7 @@ function roundWatermarkPx(value: number): number {
   position: absolute;
   left: 0;
   right: 0;
-  top: 16px;
+  top: 36px;
   height: 42px;
   align-items: center;
   justify-content: center;
@@ -3928,7 +3949,7 @@ function roundWatermarkPx(value: number): number {
 .topRightSide {
   position: absolute;
   right: 14px;
-  top: 16px;
+  top: 36px;
   width: 136px;
   height: 42px;
   flex-direction: row;
@@ -4028,7 +4049,7 @@ function roundWatermarkPx(value: number): number {
   position: absolute;
   left: 0;
   right: 0;
-  top: 108px;
+  top: 116px;
   height: 34px;
   flex-direction: row;
   align-items: center;

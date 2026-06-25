@@ -4,6 +4,41 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260625-005] subagent_provider_403
+
+**Logged**: 2026-06-25T15:05:00+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: infra
+
+### Summary
+The requested subagent audit failed because the local proxy returned a 403 from the Codex `/responses` upstream.
+
+### Error
+```text
+unexpected status 403 Forbidden: CC Switch local proxy failed while handling Codex endpoint /responses.
+Provider: CyberHZ Relay; model: gpt-5.5; upstream_status: HTTP 403; cause: API Key 所属分组已停用
+```
+
+### Context
+- Operation: pre-commit subagent audit for the CameraX top-layout adjustment.
+- Command path: `multi_agent_v1.spawn_agent`
+- Result: the spawned agent errored before returning any review output.
+
+### Suggested Fix
+Retry the audit through a working provider or fall back to local review when the relay reports 403.
+
+### Metadata
+- Reproducible: unknown
+- Related Files: pages/cameraX/index.uvue, test/structure.test.mjs
+
+### Resolution
+- **Resolved**: 2026-06-25T15:05:00+08:00
+- **Commit/PR**: pending
+- **Notes**: The main task continued locally after the subagent failure.
+
+---
+
 ## [ERR-20260625-001] hbuilderx_launch_missing_xyc_component
 
 **Logged**: 2026-06-25T00:23:14+08:00
@@ -940,5 +975,40 @@ For style-block assertions, extract the selector block with `findStyleBlock(page
 - **Resolved**: 2026-06-25T01:07:46+08:00
 - **Commit/PR**: pending
 - **Notes**: Scoped the assertions to `findStyleBlock(page, '.bottomPanel')` and reran the test suite.
+
+---
+
+## [ERR-20260625-004] npm_missing_from_shell_path
+
+**Logged**: 2026-06-25T22:37:49+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+`npm test` could not start because `npm` was not available on the shell `PATH`, but the Codex bundled Node runtime could run the same Node test suite.
+
+### Error
+```text
+zsh:1: command not found: npm
+```
+
+### Context
+- Operation: pre-commit verification for the microphone permission retry fix.
+- Command attempted: `npm test`
+- Fallback command: `/Users/chaixixi/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test test/*.test.mjs`
+- Result: fallback passed 36/36 tests.
+
+### Suggested Fix
+When this shell lacks npm, run the repository test script directly with the Codex bundled Node path, or add the bundled node/npm directory to PATH before using package-manager scripts.
+
+### Metadata
+- Reproducible: yes
+- Related Files: package.json, test/structure.test.mjs
+
+### Resolution
+- **Resolved**: 2026-06-25T22:37:49+08:00
+- **Commit/PR**: pending
+- **Notes**: Verified the equivalent `node --test test/*.test.mjs` command with the bundled Node runtime.
 
 ---
