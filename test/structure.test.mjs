@@ -13,9 +13,10 @@ const testWatermarkMaxScale = 2.2;
 const testWatermarkPinchMinDistance = 8;
 const testWatermarkPinchMaxScaleStep = 0.12;
 const testWatermarkPinchSmoothing = 0.45;
-const testCameraTopBarHeight = 88;
+const testCameraTopBarHeight = 96;
 const testCameraModeSwitchHeight = 36;
 const testCameraMainControlsHeight = 88;
+const testCameraControlsMinVisibleHeight = 80;
 const testCameraControlsRegularTop = 8;
 const testCameraControlsCompactTop = 4;
 const testCameraControlsRegularGap = 12;
@@ -40,6 +41,7 @@ const requiredFiles = [
   'pages/index/index.uvue',
   'pages/cameraX/index.uvue',
   'docs/watermark-template-camera-prd.md',
+  'static/icons/camera-rotate.svg',
   'static/watermark/logo3.png',
   'uni_modules/xyc-markvideo/package.json',
   'uni_modules/xyc-markvideo/utssdk/app-android/XycNativeCameraView.kt',
@@ -177,8 +179,10 @@ function testMaxWatermarkScale(editWidth, editHeight, frameWidth, frameHeight, r
 }
 
 function testCameraViewportBounds(width, height) {
-  const targetWidth = width;
-  const targetHeight = targetWidth * testCameraViewportAspectHeight / testCameraViewportAspectWidth;
+  const fullTargetHeight = width * testCameraViewportAspectHeight / testCameraViewportAspectWidth;
+  const maxTargetHeight = Math.max(1, height - testCameraTopBarHeight - testCameraControlsMinVisibleHeight);
+  const targetHeight = Math.min(fullTargetHeight, maxTargetHeight);
+  const targetWidth = targetHeight * testCameraViewportAspectWidth / testCameraViewportAspectHeight;
   const left = (width - targetWidth) / 2;
   const top = testCameraTopBarHeight;
   return {
@@ -507,6 +511,13 @@ test('watermark logo source asset is high enough for photo burn-in', async () =>
   assert.ok(dimensions.height >= 512, `logo3.png height should be >= 512, got ${dimensions.height}`);
 });
 
+test('camera rotate svg asset mirrors the Font Awesome camera-rotate path', async () => {
+  const svg = await readFile(path.join(root, 'static/icons/camera-rotate.svg'), 'utf8');
+
+  assert.match(svg, /viewBox="0 0 512 512"/);
+  assert.match(svg, /M138\.7 96l10\.4-31\.2/);
+});
+
 test('watermark resize handle uses native view lines for the diagonal glyph', async () => {
   const page = await readFile(path.join(root, 'pages/cameraX/index.uvue'), 'utf8');
 
@@ -700,6 +711,8 @@ test('cameraX uvue page owns UI and calls xyc-markvideo native camera methods', 
   const pressShutterBody = page.match(/async pressShutter\(\): Promise<void> \{[\s\S]*?\n    \},\n    formatRecordElapsed/)?.[0] || '';
   const startRecordReadyBody = page.match(/async startRecordWithReadyPermissions\(nativeCamera: XycMarkvideoElement\): Promise<void> \{[\s\S]*?\n    \},\n    retryCameraAfterPermission\(\)/)?.[0] || '';
   const topBar = page.match(/<view class="topBar">[\s\S]*?<view class="recordHud"/)?.[0] || '';
+  const switchCameraControl = findTagBlock(page, '<view class="switchCameraTapArea"', 'view');
+  const recordHud = findTagBlock(page, '<view class="recordHud"', 'view');
   const watermarkArea = findTagBlock(page, '<view class="watermarkLayer"', 'view');
   const watermarkTransformBox = findTagBlock(page, '<view class="watermarkTransformBox"', 'view');
   const bottomPanelStyle = findStyleBlock(page, '.bottomPanel');
@@ -724,9 +737,10 @@ test('cameraX uvue page owns UI and calls xyc-markvideo native camera methods', 
   assert.match(page, /@camerachange="handleCameraChange"/);
   assert.match(page, /const PORTRAIT_LAYOUT_FALLBACK_WIDTH = 375/);
   assert.match(page, /const PORTRAIT_LAYOUT_FALLBACK_HEIGHT = 812/);
-  assert.match(page, /const CAMERA_TOP_BAR_HEIGHT = 88/);
+  assert.match(page, /const CAMERA_TOP_BAR_HEIGHT = 96/);
   assert.match(page, /const CAMERA_MODE_SWITCH_HEIGHT = 36/);
   assert.match(page, /const CAMERA_MAIN_CONTROLS_HEIGHT = 88/);
+  assert.match(page, /const CAMERA_CONTROLS_MIN_VISIBLE_HEIGHT = 80/);
   assert.match(page, /const CAMERA_CONTROLS_REGULAR_TOP = 8/);
   assert.match(page, /const CAMERA_CONTROLS_COMPACT_TOP = 4/);
   assert.match(page, /const CAMERA_CONTROLS_REGULAR_GAP = 12/);
@@ -755,8 +769,10 @@ test('cameraX uvue page owns UI and calls xyc-markvideo native camera methods', 
   assert.match(page, /zoomRailStyle\(\) \{[\s\S]*const viewport = this\.cameraViewportBounds\(\)[\s\S]*top: Math\.round\(viewport\.bottom - 56\) \+ 'px'/);
   assert.match(page, /const usableHeight = Math\.min\(windowHeight, safeAreaBottom\)/);
   assert.match(page, /function resolveCameraViewportBounds\(width(?:: number)?, height(?:: number)?\)/);
-  assert.match(page, /const targetWidth = safeWidth/);
-  assert.match(page, /const targetHeight = targetWidth \* CAMERA_VIEWPORT_ASPECT_HEIGHT \/ CAMERA_VIEWPORT_ASPECT_WIDTH/);
+  assert.match(page, /const fullTargetHeight = safeWidth \* CAMERA_VIEWPORT_ASPECT_HEIGHT \/ CAMERA_VIEWPORT_ASPECT_WIDTH/);
+  assert.match(page, /const maxTargetHeight = Math\.max\(1, safeHeight - CAMERA_TOP_BAR_HEIGHT - CAMERA_CONTROLS_MIN_VISIBLE_HEIGHT\)/);
+  assert.match(page, /const targetHeight = Math\.min\(fullTargetHeight, maxTargetHeight\)/);
+  assert.match(page, /const targetWidth = targetHeight \* CAMERA_VIEWPORT_ASPECT_WIDTH \/ CAMERA_VIEWPORT_ASPECT_HEIGHT/);
   assert.match(page, /const top = CAMERA_TOP_BAR_HEIGHT/);
   assert.match(page, /function resolveCameraBottomPanelBounds\(width(?:: number)?, height(?:: number)?\)/);
   assert.match(page, /const viewport = resolveCameraViewportBounds\(safeWidth, safeHeight\)/);
@@ -1112,10 +1128,13 @@ test('cameraX uvue page owns UI and calls xyc-markvideo native camera methods', 
   assert.doesNotMatch(page, /@touchend\.stop="switchCameraFacing"/);
   assert.match(page, /switchCameraFacing\(\)[\s\S]*this\.triggerHaptic\('light'\)[\s\S]*this\.cameraSwitchPending = true/);
   assert.match(page, /switchCameraFacing\(\)[\s\S]*this\.nativeStatus = hasText\(message\) \? message : this\.cameraFacingLabel\(this\.cameraFacing\)[\s\S]*this\.showCameraControlToast\(this\.nativeStatus\)/);
-  assert.match(page, /<text class="switchCameraIcon">⇄<\/text>/);
-  assert.doesNotMatch(page, /class="switchCameraGlyph"/);
-  assert.doesNotMatch(page, /class="switchCameraLens"/);
-  assert.doesNotMatch(page, /class="switchCameraTopLine"/);
+  assert.match(switchCameraControl, /class="switchCameraGlyph"/);
+  assert.match(switchCameraControl, /class="switchCameraIconImage" src="\/static\/icons\/camera-rotate\.svg" mode="aspectFit"/);
+  assert.doesNotMatch(page, /switchCameraBodyClass|switchCameraTopLineClass|switchCameraArrowClass|switchCameraOrbitTopActive|switchCameraOrbitBottomActive|switchCameraHeadTopActive|switchCameraHeadBottomActive/);
+  assert.doesNotMatch(page, /class="switchCameraTopBar"|class="switchCameraBody"|class="switchCameraOrbitTop"|class="switchCameraOrbitBottom"|class="switchCameraHeadTop"|class="switchCameraHeadBottom"/);
+  assert.doesNotMatch(page, /class="switchCameraArc/);
+  assert.doesNotMatch(switchCameraControl, /<text class="switchCameraIcon">⇄<\/text>/);
+  assert.match(page, /\.switchCameraIconImage \{[\s\S]*width: 24px;[\s\S]*height: 24px;/);
   assert.doesNotMatch(page, /class="fpsPill"/);
   assert.doesNotMatch(page, /class="fpsText"/);
   assert.match(page, /class="cameraSoundTapArea" @click="toggleCameraSound"/);
@@ -1381,12 +1400,12 @@ test('cameraX uvue page owns UI and calls xyc-markvideo native camera methods', 
   assert.match(page, /class="modeSwitch"/);
   assert.match(page, /width: 176px/);
   assert.match(page, /\.cameraSoundTapArea \{[\s\S]*left: 22px;[\s\S]*top: -3px;[\s\S]*width: 64px;[\s\S]*height: 42px;[\s\S]*justify-content: center;/);
-  assert.match(page, /\.cameraSoundPill \{[\s\S]*width: 64px;[\s\S]*height: 36px;[\s\S]*border-radius: 18px;[\s\S]*background-color: rgba\(255, 255, 255, 0\.9\);[\s\S]*border-color: rgba\(255, 255, 255, 0\.72\);/);
-  assert.match(page, /\.cameraSoundPillActive \{[\s\S]*background-color: #ff8a00;[\s\S]*border-color: #ff8a00;/);
+  assert.match(page, /\.cameraSoundPill \{[\s\S]*width: 64px;[\s\S]*height: 36px;[\s\S]*border-radius: 18px;[\s\S]*background-color: rgba\(255, 255, 255, 0\.74\);[\s\S]*border-color: rgba\(255, 255, 255, 0\.92\);/);
+  assert.match(page, /\.cameraSoundPillActive \{[\s\S]*background-color: rgba\(255, 255, 255, 0\.74\);[\s\S]*border-color: rgba\(255, 138, 0, 0\.62\);/);
   assert.match(page, /\.cameraSoundIcon \{[\s\S]*width: 18px;[\s\S]*height: 36px;[\s\S]*justify-content: center;[\s\S]*\}/);
   assert.match(page, /\.cameraSoundIconText \{[\s\S]*width: 18px;[\s\S]*height: 36px;[\s\S]*color: #111917;[\s\S]*font-size: 17px;[\s\S]*line-height: 35px;/);
   assert.match(page, /\.cameraSoundText \{[\s\S]*width: 36px;[\s\S]*color: #111917;[\s\S]*line-height: 36px;/);
-  assert.match(page, /\.cameraSoundTextActive \{[\s\S]*color: #ffffff;/);
+  assert.match(page, /\.cameraSoundTextActive \{[\s\S]*color: #ff8a00;/);
   assert.match(page, /modeTextSelected/);
   assert.match(page, /background-color: rgba\(255, 255, 255, 0\.78\)/);
   assert.match(bottomPanelStyle, /background-color: #e2e6e4;/);
@@ -1444,10 +1463,17 @@ test('cameraX uvue page owns UI and calls xyc-markvideo native camera methods', 
   assert.doesNotMatch(page, /cameraDebugBorder/);
   assert.match(page, /\.zoomButtonSelected \{[\s\S]*background-color: #ff8a00;[\s\S]*border-color: #ff8a00;/);
   assert.match(page, /\.zoomTextSelected \{[\s\S]*color: #ffffff;/);
-  assert.match(page, /\.topTitleBox \{[\s\S]*position: absolute;[\s\S]*left: 0;[\s\S]*right: 0;[\s\S]*top: 38px;[\s\S]*height: 42px;[\s\S]*justify-content: center;/);
-  assert.match(page, /\.topBar \{[\s\S]*height: 88px;/);
-  assert.match(page, /\.topSide \{[\s\S]*position: absolute;[\s\S]*left: 14px;[\s\S]*top: 38px;/);
-  assert.match(page, /\.topRightSide \{[\s\S]*position: absolute;[\s\S]*right: 14px;[\s\S]*top: 38px;/);
+  assert.match(recordHud, /<view class="recordHud" v-if="isRecording">/);
+  assert.match(recordHud, /:class="recordDotClass"/);
+  assert.match(recordHud, /\{\{ recordElapsedText \}\}/);
+  assert.match(page, /\.recordBubble \{[\s\S]*position: relative;[\s\S]*width: 112px;[\s\S]*height: 32px;[\s\S]*background-color: rgba\(17, 25, 23, 0\.82\);/);
+  assert.match(page, /\.recordDot \{[\s\S]*position: absolute;[\s\S]*left: 18px;[\s\S]*top: 12px;[\s\S]*width: 8px;[\s\S]*height: 8px;/);
+  assert.match(page, /\.recordHudText \{[\s\S]*width: 112px;[\s\S]*height: 32px;[\s\S]*color: #ffffff;[\s\S]*text-align: center;[\s\S]*line-height: 32px;/);
+  assert.match(page, /\.recordHud \{[\s\S]*top: 124px;[\s\S]*height: 34px;/);
+  assert.match(page, /\.topTitleBox \{[\s\S]*position: absolute;[\s\S]*left: 0;[\s\S]*right: 0;[\s\S]*top: 42px;[\s\S]*height: 42px;[\s\S]*justify-content: center;/);
+  assert.match(page, /\.topBar \{[\s\S]*height: 96px;/);
+  assert.match(page, /\.topSide \{[\s\S]*position: absolute;[\s\S]*left: 14px;[\s\S]*top: 42px;/);
+  assert.match(page, /\.topRightSide \{[\s\S]*position: absolute;[\s\S]*right: 14px;[\s\S]*top: 42px;/);
   assert.match(page, /color: #ffffff/);
   assert.match(page, /border-color: rgba\(255, 59, 48, 0\.72\)/);
   assert.match(page, /\.shutterWrap \{[\s\S]*left: 0;[\s\S]*right: 0;[\s\S]*justify-content: center;/);
@@ -1510,7 +1536,7 @@ test('watermark pinch scale follows two-finger distance', () => {
   assertPinchScaleIsDirectional();
 });
 
-test('camera viewport keeps a full-width 3:4 area below the top controls', () => {
+test('camera viewport keeps 3:4 area below top controls without starving bottom controls', () => {
   const tallViewport = testCameraViewportBounds(375, 812);
   const tallPanel = testCameraBottomPanelBounds(375, 812);
   assertClose(tallViewport.left, 0, 'tall viewport should use full width');
@@ -1520,28 +1546,30 @@ test('camera viewport keeps a full-width 3:4 area below the top controls', () =>
   assertClose(tallViewport.left, (375 - tallViewport.width) / 2, 'tall viewport horizontal centering');
   assertClose(tallViewport.top, testCameraTopBarHeight, 'tall viewport should start below taller top controls');
   assertClose(tallPanel.top, tallViewport.bottom, 'bottom panel should start after the camera viewport');
-  assertClose(tallPanel.height, 224, 'tall bottom panel uses remaining safe area');
+  assertClose(tallPanel.height, 812 - testCameraTopBarHeight - tallViewport.height, 'tall bottom panel uses remaining safe area');
 
   const shortViewport = testCameraViewportBounds(375, 667);
   const shortPanel = testCameraBottomPanelBounds(375, 667);
-  assertClose(shortViewport.width, 375, 'short viewport should use full width');
-  assertClose(shortViewport.height, 500, 'short viewport keeps 3:4 full-width height');
-  assertClose(shortViewport.left, 0, 'short viewport should fill horizontally');
+  assertClose(shortViewport.width, 368.25, 'short viewport should shrink slightly to reserve controls');
+  assertClose(shortViewport.height, 491, 'short viewport keeps 3:4 height while reserving controls');
+  assertClose(shortViewport.left, (375 - shortViewport.width) / 2, 'short viewport should center horizontally');
   assertClose(shortViewport.top, testCameraTopBarHeight, 'short viewport should start below top controls');
   assertClose(shortViewport.width / shortViewport.height, 3 / 4, 'short viewport aspect');
-  assertClose(shortViewport.left, (375 - shortViewport.width) / 2, 'short viewport horizontal centering');
   assertClose(shortPanel.top, shortViewport.bottom, 'short bottom panel should start after the camera viewport');
-  assertClose(shortPanel.height, 79, 'short bottom panel uses remaining compact safe area');
+  assertClose(shortPanel.height, testCameraControlsMinVisibleHeight, 'short bottom panel keeps minimum visible controls');
 
   const compactViewport = testCameraViewportBounds(320, 568);
   const compactPanel = testCameraBottomPanelBounds(320, 568);
-  assertClose(compactViewport.width, 320, 'compact viewport should use full width');
-  assertClose(compactViewport.height, 426.6666666666667, 'compact viewport keeps 3:4 full-width height');
-  assertClose(compactViewport.left, 0, 'compact viewport should fill horizontally');
+  const compactLayout = testCameraControlsLayout(compactPanel.height);
+  assertClose(compactViewport.width, 294, 'compact viewport should shrink to reserve controls');
+  assertClose(compactViewport.height, 392, 'compact viewport keeps 3:4 height while reserving controls');
+  assertClose(compactViewport.left, (320 - compactViewport.width) / 2, 'compact viewport should center horizontally');
   assertClose(compactViewport.top, testCameraTopBarHeight, 'compact viewport should start below top controls');
   assertClose(compactViewport.width / compactViewport.height, 3 / 4, 'compact viewport aspect');
   assertClose(compactPanel.top, compactViewport.bottom, 'compact bottom panel should start after the camera viewport');
-  assertClose(compactPanel.height, 53.333333333333314, 'compact bottom panel uses remaining safe area');
+  assertClose(compactPanel.height, testCameraControlsMinVisibleHeight, 'compact bottom panel keeps minimum visible controls');
+  assert.ok(compactLayout.mainScale > 0.7, 'compact bottom controls should remain visible');
+  assertClose(compactLayout.mainTop, 0, 'compact bottom controls should stay inside the panel');
 });
 
 test('watermark scale max keeps the full edit box inside the camera viewport', () => {

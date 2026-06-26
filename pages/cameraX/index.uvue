@@ -177,7 +177,9 @@
         </view>
         <view class="switchCameraTapArea" @click.stop="switchCameraFacing">
           <view :class="switchCameraButtonClass">
-            <text class="switchCameraIcon">⇄</text>
+            <view class="switchCameraGlyph">
+              <image class="switchCameraIconImage" src="/static/icons/camera-rotate.svg" mode="aspectFit"></image>
+            </view>
           </view>
         </view>
       </view>
@@ -294,9 +296,10 @@ const WATERMARK_TRACE_LOG = false
 const RECORD_STOP_TIMEOUT_MS = 12000
 const PORTRAIT_LAYOUT_FALLBACK_WIDTH = 375
 const PORTRAIT_LAYOUT_FALLBACK_HEIGHT = 812
-const CAMERA_TOP_BAR_HEIGHT = 88
+const CAMERA_TOP_BAR_HEIGHT = 96
 const CAMERA_MODE_SWITCH_HEIGHT = 36
 const CAMERA_MAIN_CONTROLS_HEIGHT = 88
+const CAMERA_CONTROLS_MIN_VISIBLE_HEIGHT = 80
 const CAMERA_CONTROLS_REGULAR_TOP = 8
 const CAMERA_CONTROLS_COMPACT_TOP = 4
 const CAMERA_CONTROLS_REGULAR_GAP = 12
@@ -615,9 +618,6 @@ export default {
     },
     switchCameraButtonClass() {
       const classes = ['switchCameraButton']
-      if (this.cameraFacing === 'front') {
-        classes.push('switchCameraButtonActive')
-      }
       if (this.cameraSwitchPending) {
         classes.push('switchCameraButtonPending')
       }
@@ -3263,8 +3263,11 @@ function normalizePortraitLayoutBounds(width: number, height: number): ScreenBou
 
 function resolveCameraViewportBounds(width: number, height: number): CameraViewportBounds {
   const safeWidth = Math.max(1, safeNumber(width, PORTRAIT_LAYOUT_FALLBACK_WIDTH))
-  const targetWidth = safeWidth
-  const targetHeight = targetWidth * CAMERA_VIEWPORT_ASPECT_HEIGHT / CAMERA_VIEWPORT_ASPECT_WIDTH
+  const safeHeight = Math.max(1, safeNumber(height, PORTRAIT_LAYOUT_FALLBACK_HEIGHT))
+  const fullTargetHeight = safeWidth * CAMERA_VIEWPORT_ASPECT_HEIGHT / CAMERA_VIEWPORT_ASPECT_WIDTH
+  const maxTargetHeight = Math.max(1, safeHeight - CAMERA_TOP_BAR_HEIGHT - CAMERA_CONTROLS_MIN_VISIBLE_HEIGHT)
+  const targetHeight = Math.min(fullTargetHeight, maxTargetHeight)
+  const targetWidth = targetHeight * CAMERA_VIEWPORT_ASPECT_WIDTH / CAMERA_VIEWPORT_ASPECT_HEIGHT
   const left = (safeWidth - targetWidth) / 2
   const top = CAMERA_TOP_BAR_HEIGHT
   return {
@@ -3874,7 +3877,7 @@ function roundWatermarkPx(value: number): number {
   left: 0;
   right: 0;
   top: 0;
-  height: 88px;
+  height: 96px;
   padding-top: 23px;
   padding-left: 14px;
   padding-right: 14px;
@@ -3887,7 +3890,7 @@ function roundWatermarkPx(value: number): number {
 .topSide {
   position: absolute;
   left: 14px;
-  top: 38px;
+  top: 42px;
   width: 64px;
   height: 42px;
   align-items: center;
@@ -3899,10 +3902,10 @@ function roundWatermarkPx(value: number): number {
   width: 64px;
   height: 36px;
   border-radius: 18px;
-  background-color: rgba(255, 255, 255, 0.9);
+  background-color: rgba(255, 255, 255, 0.74);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.92);
   align-items: center;
   justify-content: center;
 }
@@ -3920,7 +3923,7 @@ function roundWatermarkPx(value: number): number {
   position: absolute;
   left: 0;
   right: 0;
-  top: 38px;
+  top: 42px;
   height: 42px;
   align-items: center;
   justify-content: center;
@@ -3949,7 +3952,7 @@ function roundWatermarkPx(value: number): number {
 .topRightSide {
   position: absolute;
   right: 14px;
-  top: 38px;
+  top: 42px;
   width: 136px;
   height: 42px;
   flex-direction: row;
@@ -3969,10 +3972,10 @@ function roundWatermarkPx(value: number): number {
   width: 64px;
   height: 36px;
   border-radius: 18px;
-  background-color: rgba(255, 255, 255, 0.9);
+  background-color: rgba(255, 255, 255, 0.74);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.92);
   flex-direction: row;
   align-items: center;
   justify-content: center;
@@ -4018,38 +4021,35 @@ function roundWatermarkPx(value: number): number {
   width: 64px;
   height: 36px;
   border-radius: 18px;
-  background-color: rgba(255, 255, 255, 0.9);
+  background-color: rgba(255, 255, 255, 0.74);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.92);
   align-items: center;
   justify-content: center;
-}
-
-.switchCameraButtonActive {
-  background-color: #ff8a00;
-  border-color: #ff8a00;
 }
 
 .switchCameraButtonPending {
   opacity: 0.62;
 }
 
-.switchCameraIcon {
-  width: 64px;
-  height: 36px;
-  color: #111917;
-  font-size: 23px;
-  font-weight: 700;
-  text-align: center;
-  line-height: 35px;
+.switchCameraGlyph {
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+}
+
+.switchCameraIconImage {
+  width: 24px;
+  height: 24px;
 }
 
 .recordHud {
   position: absolute;
   left: 0;
   right: 0;
-  top: 116px;
+  top: 124px;
   height: 34px;
   flex-direction: row;
   align-items: center;
@@ -4058,22 +4058,26 @@ function roundWatermarkPx(value: number): number {
 }
 
 .recordBubble {
-  width: 128px;
-  height: 34px;
-  border-radius: 17px;
-  background-color: rgba(255, 255, 255, 0.9);
+  position: relative;
+  width: 112px;
+  height: 32px;
+  border-radius: 16px;
+  background-color: rgba(17, 25, 23, 0.82);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 138, 0, 0.36);
+  border-color: rgba(255, 255, 255, 0.2);
   flex-direction: row;
   align-items: center;
   justify-content: center;
 }
 
 .recordDot {
-  width: 10px;
-  height: 10px;
-  border-radius: 5px;
+  position: absolute;
+  left: 18px;
+  top: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
   background-color: #ff3b30;
 }
 
@@ -4082,13 +4086,15 @@ function roundWatermarkPx(value: number): number {
 }
 
 .recordHudText {
-  margin-left: 8px;
-  width: 56px;
-  height: 34px;
-  color: #111917;
+  margin-left: 0;
+  width: 112px;
+  height: 32px;
+  color: #ffffff;
   font-size: 14px;
   font-weight: 700;
-  line-height: 34px;
+  font-family: monospace;
+  text-align: center;
+  line-height: 32px;
 }
 
 .zoomRail {
@@ -4108,10 +4114,10 @@ function roundWatermarkPx(value: number): number {
   margin-left: 3px;
   margin-right: 3px;
   border-radius: 18px;
-  background-color: rgba(255, 255, 255, 0.88);
+  background-color: rgba(255, 255, 255, 0.74);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0.78);
+  border-color: rgba(255, 255, 255, 0.92);
   align-items: center;
   justify-content: center;
 }
@@ -4169,18 +4175,18 @@ function roundWatermarkPx(value: number): number {
   width: 64px;
   height: 36px;
   border-radius: 18px;
-  background-color: rgba(255, 255, 255, 0.9);
+  background-color: rgba(255, 255, 255, 0.74);
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.92);
   flex-direction: row;
   align-items: center;
   justify-content: center;
 }
 
 .cameraSoundPillActive {
-  background-color: #ff8a00;
-  border-color: #ff8a00;
+  background-color: rgba(255, 255, 255, 0.74);
+  border-color: rgba(255, 138, 0, 0.62);
 }
 
 .cameraSoundIcon {
@@ -4211,7 +4217,7 @@ function roundWatermarkPx(value: number): number {
 }
 
 .cameraSoundTextActive {
-  color: #ffffff;
+  color: #ff8a00;
 }
 
 .modeSwitch {
